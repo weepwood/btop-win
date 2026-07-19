@@ -1,5 +1,7 @@
 # btop-win
 
+[![CI](https://github.com/weepwood/btop-win/actions/workflows/ci.yml/badge.svg)](https://github.com/weepwood/btop-win/actions/workflows/ci.yml)
+
 A fast Windows-native terminal system monitor inspired by **btop**. It is written in Rust and renders a low-flicker TUI with Ratatui.
 
 > This project is an independent implementation. It does not copy btop++ source code or claim compatibility with its configuration format.
