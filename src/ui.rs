@@ -1,12 +1,12 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Modifier, Style},
     symbols::Marker,
     text::{Line, Span, Text},
     widgets::{
-        Axis, Block, Borders, Cell, Chart, Clear, Dataset, Gauge, GraphType, Paragraph, Row,
-        Table, Wrap,
+        Axis, Block, Borders, Cell, Chart, Clear, Dataset, Gauge, GraphType, Paragraph, Row, Table,
+        Wrap,
     },
 };
 
@@ -92,24 +92,39 @@ fn draw_compact(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
 fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let status = if app.paused {
-        Span::styled(" PAUSED ", Style::default().fg(Color::Black).bg(WARN).bold())
+        Span::styled(
+            " PAUSED ",
+            Style::default().fg(Color::Black).bg(WARN).bold(),
+        )
     } else if app.has_sample {
         Span::styled(" LIVE ", Style::default().fg(Color::Black).bg(GOOD).bold())
     } else {
-        Span::styled(" WARMING UP ", Style::default().fg(Color::Black).bg(WARN).bold())
+        Span::styled(
+            " WARMING UP ",
+            Style::default().fg(Color::Black).bg(WARN).bold(),
+        )
     };
 
     let title = Line::from(vec![
         Span::styled(
             " btop-win ",
-            Style::default().fg(Color::Black).bg(PRIMARY).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Black)
+                .bg(PRIMARY)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
         status,
         Span::raw("  "),
-        Span::styled(app.snapshot.host_name.as_str(), Style::default().fg(Color::White).bold()),
+        Span::styled(
+            app.snapshot.host_name.as_str(),
+            Style::default().fg(Color::White).bold(),
+        ),
         Span::raw("  "),
-        Span::styled(app.snapshot.os_version.as_str(), Style::default().fg(Color::Gray)),
+        Span::styled(
+            app.snapshot.os_version.as_str(),
+            Style::default().fg(Color::Gray),
+        ),
     ]);
 
     let right = format!(
@@ -118,7 +133,9 @@ fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
         app.snapshot.processes.len()
     );
 
-    let block = Block::default().borders(Borders::ALL).border_style(border_style());
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(border_style());
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(title), inner);
@@ -127,7 +144,9 @@ fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     if inner.width > right_width + 2 {
         let right_area = Rect::new(inner.x + inner.width - right_width, inner.y, right_width, 1);
         frame.render_widget(
-            Paragraph::new(right).alignment(Alignment::Right).style(Style::default().fg(Color::Gray)),
+            Paragraph::new(right)
+                .alignment(Alignment::Right)
+                .style(Style::default().fg(Color::Gray)),
             right_area,
         );
     }
@@ -156,7 +175,11 @@ fn draw_cpu(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let chart = Chart::new(datasets)
         .block(panel(title))
         .x_axis(Axis::default().bounds([0.0, x_max]))
-        .y_axis(Axis::default().bounds([0.0, 100.0]).labels(["0%", "50%", "100%"]));
+        .y_axis(
+            Axis::default()
+                .bounds([0.0, 100.0])
+                .labels(["0%", "50%", "100%"]),
+        );
     frame.render_widget(chart, area);
 }
 
@@ -168,7 +191,11 @@ fn draw_memory(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Length(3), Constraint::Min(2)])
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(2),
+        ])
         .split(inner);
 
     let ram_label = format!(
@@ -190,7 +217,11 @@ fn draw_memory(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let swap_label = if memory.swap_total_bytes == 0 {
         "Swap unavailable".to_owned()
     } else {
-        format!("Swap  {} / {}", format_bytes(memory.swap_used_bytes), format_bytes(memory.swap_total_bytes))
+        format!(
+            "Swap  {} / {}",
+            format_bytes(memory.swap_used_bytes),
+            format_bytes(memory.swap_total_bytes)
+        )
     };
     frame.render_widget(
         Gauge::default()
@@ -213,7 +244,9 @@ fn draw_memory(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .collect::<Vec<_>>()
         .join("  ");
     frame.render_widget(
-        Paragraph::new(core_text).style(Style::default().fg(Color::Gray)).wrap(Wrap { trim: true }),
+        Paragraph::new(core_text)
+            .style(Style::default().fg(Color::Gray))
+            .wrap(Wrap { trim: true }),
         rows[2],
     );
 }
@@ -276,7 +309,11 @@ fn draw_disks(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 format!("{} {}", disk.mount_point, disk.name)
             }),
             Cell::from(format!("{}/{}", disk.file_system, disk.kind)),
-            Cell::from(format!("{:>3}% {}", percent(disk.used_ratio() * 100.0), format_bytes(disk.used_bytes()))),
+            Cell::from(format!(
+                "{:>3}% {}",
+                percent(disk.used_ratio() * 100.0),
+                format_bytes(disk.used_bytes())
+            )),
             Cell::from(format_rate(disk.read_bytes_per_second)),
             Cell::from(format_rate(disk.written_bytes_per_second)),
         ])
@@ -317,7 +354,13 @@ fn draw_processes(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 
     let selected = app
         .selected_process()
-        .map(|process| if process.executable.is_empty() { process.name.clone() } else { process.executable.clone() })
+        .map(|process| {
+            if process.executable.is_empty() {
+                process.name.clone()
+            } else {
+                process.executable.clone()
+            }
+        })
         .unwrap_or_else(|| "no process selected".to_owned());
     let title = format!(
         " Processes  sort: {}  |  {} ",
@@ -353,7 +396,9 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         "q quit  p pause  s sort  ↑↓/jk select  PgUp/PgDn jump  r reset  ? help"
     };
     frame.render_widget(
-        Paragraph::new(text).alignment(Alignment::Center).style(Style::default().fg(Color::Gray)),
+        Paragraph::new(text)
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::Gray)),
         area,
     );
 }
@@ -362,7 +407,10 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
     let popup = centered_rect(66, 76, area);
     frame.render_widget(Clear, popup);
     let text = Text::from(vec![
-        Line::from(Span::styled("Keyboard", Style::default().fg(PRIMARY).bold())),
+        Line::from(Span::styled(
+            "Keyboard",
+            Style::default().fg(PRIMARY).bold(),
+        )),
         Line::from(""),
         Line::from("q / Esc / Ctrl+C    quit"),
         Line::from("p / Space           pause or resume sampling"),
@@ -379,7 +427,9 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         )),
     ]);
     frame.render_widget(
-        Paragraph::new(text).block(panel(" Help ")).wrap(Wrap { trim: false }),
+        Paragraph::new(text)
+            .block(panel(" Help "))
+            .wrap(Wrap { trim: false }),
         popup,
     );
 }
