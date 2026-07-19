@@ -61,5 +61,6 @@ jobs:
           path: |
             clippy.log
             rustfmt.patch
+            src/*.rs
           if-no-files-found: ignore
           retention-days: 3
