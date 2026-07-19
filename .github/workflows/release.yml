@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Test
+        run: cargo test --target x86_64-pc-windows-msvc
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { 'dev' }
+          $folder = "btop-win-$version-x86_64-pc-windows-msvc"
+          New-Item -ItemType Directory -Path $folder | Out-Null
+          Copy-Item "target/x86_64-pc-windows-msvc/release/btop-win.exe" $folder
+          Copy-Item README.md, LICENSE $folder
+          Compress-Archive -Path $folder -DestinationPath "$folder.zip"
+          "ARCHIVE=$folder.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: btop-win-windows-x64
+          path: ${{ env.ARCHIVE }}
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create $env:GITHUB_REF_NAME $env:ARCHIVE --generate-notes --verify-tag

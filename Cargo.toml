@@ -1,0 +1,23 @@
+[package]
+name = "btop-win"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "A fast Windows-native terminal system monitor inspired by btop"
+license = "MIT"
+repository = "https://github.com/weepwood/btop-win"
+readme = "README.md"
+keywords = ["windows", "terminal", "monitor", "tui", "system"]
+categories = ["command-line-utilities", "os::windows-apis"]
+
+[dependencies]
+anyhow = "1.0.103"
+crossterm = "0.29.0"
+ratatui = "0.30.2"
+sysinfo = { version = "0.39.6", default-features = false, features = ["disk", "network", "system"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"
+strip = "symbols"
