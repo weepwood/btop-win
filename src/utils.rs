@@ -18,9 +18,7 @@ pub fn format_bytes_f64(value: f64) -> String {
         unit += 1;
     }
 
-    if unit == 0 {
-        format!("{size:.0} {}", UNITS[unit])
-    } else if size >= 100.0 {
+    if unit == 0 || size >= 100.0 {
         format!("{size:.0} {}", UNITS[unit])
     } else if size >= 10.0 {
         format!("{size:.1} {}", UNITS[unit])
