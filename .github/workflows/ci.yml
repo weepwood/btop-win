@@ -24,23 +24,12 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
 
-      - name: Apply rustfmt
+      - name: Format
         if: matrix.os == 'ubuntu-latest'
-        run: cargo fmt --all
-
-      - name: Capture rustfmt patch
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: git diff --no-ext-diff > rustfmt.patch
+        run: cargo fmt --all -- --check
 
       - name: Clippy
-        shell: bash
-        run: |
-          set +e
-          cargo clippy --quiet --all-targets --all-features -- -D warnings > clippy.log 2>&1
-          status=$?
-          cat clippy.log
-          exit $status
+        run: cargo clippy --quiet --all-targets --all-features -- -D warnings
 
       - name: Test
         run: cargo test --quiet --all-features
@@ -48,19 +37,3 @@ jobs:
       - name: Release build
         if: matrix.os == 'windows-latest'
         run: cargo build --quiet --release
-
-      - name: Verify formatting
-        if: matrix.os == 'ubuntu-latest'
-        run: git diff --exit-code
-
-      - name: Upload diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: diagnostics-${{ matrix.os }}
-          path: |
-            clippy.log
-            rustfmt.patch
-            src/*.rs
-          if-no-files-found: ignore
-          retention-days: 3
