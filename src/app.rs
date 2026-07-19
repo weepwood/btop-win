@@ -117,9 +117,12 @@ impl App {
         self.snapshot = snapshot;
         self.sort_processes();
         self.cpu_history.push(self.snapshot.cpu.total_usage);
-        self.memory_history.push(self.snapshot.memory.used_ratio() * 100.0);
-        self.network_received_history.push(self.snapshot.network.received_bytes_per_second);
-        self.network_transmitted_history.push(self.snapshot.network.transmitted_bytes_per_second);
+        self.memory_history
+            .push(self.snapshot.memory.used_ratio() * 100.0);
+        self.network_received_history
+            .push(self.snapshot.network.received_bytes_per_second);
+        self.network_transmitted_history
+            .push(self.snapshot.network.transmitted_bytes_per_second);
         self.has_sample = true;
         self.clamp_process_selection();
     }
@@ -144,10 +147,9 @@ impl App {
             KeyCode::PageDown => self.move_selection(10),
             KeyCode::PageUp => self.move_selection(-10),
             KeyCode::Home => self.process_table_state.select(Some(0)),
-            KeyCode::End => {
-                if !self.snapshot.processes.is_empty() {
-                    self.process_table_state.select(Some(self.snapshot.processes.len() - 1));
-                }
+            KeyCode::End if !self.snapshot.processes.is_empty() => {
+                self.process_table_state
+                    .select(Some(self.snapshot.processes.len() - 1));
             }
             _ => {}
         }
@@ -164,7 +166,9 @@ impl App {
     }
 
     pub fn selected_process(&self) -> Option<&ProcessSnapshot> {
-        self.process_table_state.selected().and_then(|index| self.snapshot.processes.get(index))
+        self.process_table_state
+            .selected()
+            .and_then(|index| self.snapshot.processes.get(index))
     }
 
     fn clear_histories(&mut self) {
@@ -199,21 +203,31 @@ impl App {
     fn sort_processes(&mut self) {
         match self.process_sort {
             ProcessSort::Cpu => self.snapshot.processes.sort_by(|left, right| {
-                descending_f64(left.cpu_usage, right.cpu_usage).then_with(|| left.pid.cmp(&right.pid))
+                descending_f64(left.cpu_usage, right.cpu_usage)
+                    .then_with(|| left.pid.cmp(&right.pid))
             }),
             ProcessSort::Memory => self.snapshot.processes.sort_by(|left, right| {
-                right.memory_bytes.cmp(&left.memory_bytes).then_with(|| left.pid.cmp(&right.pid))
+                right
+                    .memory_bytes
+                    .cmp(&left.memory_bytes)
+                    .then_with(|| left.pid.cmp(&right.pid))
             }),
             ProcessSort::Read => self.snapshot.processes.sort_by(|left, right| {
                 descending_f64(left.read_bytes_per_second, right.read_bytes_per_second)
                     .then_with(|| left.pid.cmp(&right.pid))
             }),
             ProcessSort::Write => self.snapshot.processes.sort_by(|left, right| {
-                descending_f64(left.written_bytes_per_second, right.written_bytes_per_second)
-                    .then_with(|| left.pid.cmp(&right.pid))
+                descending_f64(
+                    left.written_bytes_per_second,
+                    right.written_bytes_per_second,
+                )
+                .then_with(|| left.pid.cmp(&right.pid))
             }),
             ProcessSort::Name => self.snapshot.processes.sort_by(|left, right| {
-                left.name.to_lowercase().cmp(&right.name.to_lowercase()).then_with(|| left.pid.cmp(&right.pid))
+                left.name
+                    .to_lowercase()
+                    .cmp(&right.name.to_lowercase())
+                    .then_with(|| left.pid.cmp(&right.pid))
             }),
         }
     }
