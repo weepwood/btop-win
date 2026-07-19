@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sysinfo::{Disks, Networks, ProcessesToUpdate, System, MINIMUM_CPU_UPDATE_INTERVAL};
+use sysinfo::{Disks, MINIMUM_CPU_UPDATE_INTERVAL, Networks, ProcessesToUpdate, System};
 
 use crate::model::{
     CpuSnapshot, DiskSnapshot, MemorySnapshot, NetworkSnapshot, ProcessSnapshot, Snapshot,
@@ -84,8 +84,7 @@ impl Collector {
 
         self.system.refresh_cpu_usage();
         self.system.refresh_memory();
-        self.system
-            .refresh_processes(ProcessesToUpdate::All, true);
+        self.system.refresh_processes(ProcessesToUpdate::All, true);
         self.networks.refresh(true);
         self.disks.refresh(true);
 
