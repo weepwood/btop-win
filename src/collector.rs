@@ -56,21 +56,21 @@ struct Collector {
 
 impl Collector {
     fn new() -> Self {
-        let mut system = System::new_all();
-        let mut networks = Networks::new_with_refreshed_list();
-        let mut disks = Disks::new_with_refreshed_list();
+        let system = System::new_all();
+        let networks = Networks::new_with_refreshed_list();
+        let disks = Disks::new_with_refreshed_list();
+        let last_sample = Instant::now();
 
+        // CPU and per-process percentages require two observations separated by
+        // at least sysinfo's minimum update interval. Network and disk counters
+        // use the same elapsed interval for their first rate calculation.
         thread::sleep(MINIMUM_CPU_UPDATE_INTERVAL);
-        system.refresh_cpu_usage();
-        system.refresh_processes(ProcessesToUpdate::All, true);
-        networks.refresh(true);
-        disks.refresh(true);
 
         Self {
             system,
             networks,
             disks,
-            last_sample: Instant::now(),
+            last_sample,
         }
     }
 
@@ -123,10 +123,30 @@ impl Collector {
     }
 
     fn network_snapshot(&self, elapsed_seconds: f64) -> NetworkSnapshot {
-        let received = self.networks.list().values().map(|data| data.received()).sum::<u64>();
-        let transmitted = self.networks.list().values().map(|data| data.transmitted()).sum::<u64>();
-        let total_received = self.networks.list().values().map(|data| data.total_received()).sum::<u64>();
-        let total_transmitted = self.networks.list().values().map(|data| data.total_transmitted()).sum::<u64>();
+        let received = self
+            .networks
+            .list()
+            .values()
+            .map(|data| data.received())
+            .sum::<u64>();
+        let transmitted = self
+            .networks
+            .list()
+            .values()
+            .map(|data| data.transmitted())
+            .sum::<u64>();
+        let total_received = self
+            .networks
+            .list()
+            .values()
+            .map(|data| data.total_received())
+            .sum::<u64>();
+        let total_transmitted = self
+            .networks
+            .list()
+            .values()
+            .map(|data| data.total_transmitted())
+            .sum::<u64>();
 
         NetworkSnapshot {
             received_bytes_per_second: received as f64 / elapsed_seconds,
@@ -147,7 +167,7 @@ impl Collector {
                     name: disk.name().to_string_lossy().into_owned(),
                     mount_point: disk.mount_point().to_string_lossy().into_owned(),
                     file_system: disk.file_system().to_string_lossy().into_owned(),
-                    kind: format!("{:?}", disk.kind()),
+                    kind: disk.kind().to_string(),
                     total_bytes: disk.total_space(),
                     available_bytes: disk.available_space(),
                     read_bytes_per_second: usage.read_bytes as f64 / elapsed_seconds,
