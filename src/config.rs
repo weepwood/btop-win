@@ -2,6 +2,8 @@ use std::ffi::OsString;
 
 use anyhow::{Result, bail};
 
+use crate::theme::ThemeName;
+
 pub const DEFAULT_INTERVAL_MS: u64 = 1_000;
 pub const DEFAULT_HISTORY_POINTS: usize = 120;
 
@@ -9,6 +11,7 @@ pub const DEFAULT_HISTORY_POINTS: usize = 120;
 pub struct Config {
     pub interval_ms: u64,
     pub history_points: usize,
+    pub theme: ThemeName,
 }
 
 impl Default for Config {
@@ -16,6 +19,7 @@ impl Default for Config {
         Self {
             interval_ms: DEFAULT_INTERVAL_MS,
             history_points: DEFAULT_HISTORY_POINTS,
+            theme: ThemeName::default(),
         }
     }
 }
@@ -53,6 +57,10 @@ impl Config {
                         bail!("history must be between 30 and 600 points");
                     }
                 }
+                "--theme" => {
+                    let value = next_value(&mut args, "--theme")?;
+                    config.theme = ThemeName::parse(&value)?;
+                }
                 unknown => bail!("unknown argument: {unknown}\n\n{}", help_text()),
             }
         }
@@ -71,7 +79,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "btop-win - Windows terminal system monitor\n\nUSAGE:\n    btop-win [OPTIONS]\n\nOPTIONS:\n    -i, --interval <MS>    Sampling interval, 250-5000 ms [default: 1000]\n        --history <COUNT>  History points, 30-600 [default: 120]\n    -h, --help             Print help\n    -V, --version          Print version\n\nKEYS:\n    q / Esc / Ctrl+C       Quit; Esc clears an active filter first\n    /                      Edit process filter\n    Enter                  Keep filter and leave edit mode\n    Backspace / Esc        Edit or clear process filter\n    [ / ]                  Previous/next network adapter\n    a                      Aggregate all network adapters\n    c/m/n/d/w              Sort CPU/memory/name/read/write\n    o                      Toggle ascending/descending order\n    s                      Cycle process sort column\n    p / Space              Pause or resume updates\n    Up/Down or j/k         Select a process\n    PageUp/PageDown        Move by ten visible processes\n    Home/End               Jump to first/last visible process\n    r                      Reset charts\n    ?                      Toggle help\n"
+    "btop-win - Windows terminal system monitor\n\nUSAGE:\n    btop-win [OPTIONS]\n\nOPTIONS:\n    -i, --interval <MS>    Sampling interval, 250-5000 ms [default: 1000]\n        --history <COUNT>  History points, 30-600 [default: 120]\n        --theme <NAME>     Theme: btop, dracula, nord, mono [default: btop]\n    -h, --help             Print help\n    -V, --version          Print version\n\nKEYS:\n    q / Esc / Ctrl+C       Quit; Esc clears an active filter first\n    /                      Edit process filter\n    Enter                  Keep filter and leave edit mode\n    Backspace / Esc        Edit or clear process filter\n    [ / ]                  Previous/next network adapter\n    a                      Aggregate all network adapters\n    c/m/n/d/w              Sort CPU/memory/name/read/write\n    o                      Toggle ascending/descending order\n    s                      Cycle process sort column\n    p / Space              Pause or resume updates\n    Up/Down or j/k         Select a process\n    PageUp/PageDown        Move by ten visible processes\n    Home/End               Jump to first/last visible process\n    r                      Reset charts\n    ?                      Toggle help\n"
 }
 
 #[cfg(test)]
@@ -80,13 +88,21 @@ mod tests {
 
     #[test]
     fn parses_custom_values() {
-        let config = Config::parse_from(["--interval", "500", "--history", "240"]).unwrap();
+        let config =
+            Config::parse_from(["--interval", "500", "--history", "240", "--theme", "nord"])
+                .unwrap();
         assert_eq!(config.interval_ms, 500);
         assert_eq!(config.history_points, 240);
+        assert_eq!(config.theme, ThemeName::Nord);
     }
 
     #[test]
     fn rejects_too_fast_sampling() {
         assert!(Config::parse_from(["--interval", "100"]).is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_theme() {
+        assert!(Config::parse_from(["--theme", "missing"]).is_err());
     }
 }

@@ -2,6 +2,7 @@ mod app;
 mod collector;
 mod config;
 mod model;
+mod theme;
 mod ui;
 mod utils;
 
@@ -55,6 +56,7 @@ fn main() -> Result<()> {
 
 fn run(terminal: &mut Tui, config: Config) -> Result<()> {
     let interval = Duration::from_millis(config.interval_ms);
+    let theme = config.theme.palette();
     // Keep at most one pending snapshot. A slow terminal should not cause an
     // unbounded queue of stale process lists and metric samples.
     let (sender, receiver) = mpsc::sync_channel(1);
@@ -92,7 +94,7 @@ fn run(terminal: &mut Tui, config: Config) -> Result<()> {
 
             if dirty {
                 let render_started = Instant::now();
-                terminal.draw(|frame| ui::draw(frame, &mut app))?;
+                terminal.draw(|frame| ui::draw(frame, &mut app, theme))?;
                 app.record_render(render_started.elapsed());
                 dirty = false;
             }

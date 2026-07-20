@@ -5,21 +5,16 @@ use ratatui::{
     symbols::Marker,
     text::{Line, Span, Text},
     widgets::{
-        Axis, Block, Borders, Cell, Chart, Clear, Dataset, Gauge, GraphType, Paragraph, Row, Table,
-        Wrap,
+        Axis, Block, BorderType, Borders, Cell, Chart, Clear, Dataset, Gauge, GraphType, Paragraph,
+        Row, Table, Wrap,
     },
 };
 
 use crate::{
     app::App,
+    theme::Theme,
     utils::{format_bytes, format_rate, format_uptime, percent},
 };
-
-const BORDER: Color = Color::DarkGray;
-const PRIMARY: Color = Color::Cyan;
-const SECONDARY: Color = Color::Magenta;
-const GOOD: Color = Color::Green;
-const WARN: Color = Color::Yellow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProcessColumns {
@@ -28,17 +23,22 @@ enum ProcessColumns {
     Full,
 }
 
-pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
+pub fn draw(frame: &mut Frame<'_>, app: &mut App, theme: Theme) {
     let area = frame.area();
+    frame.render_widget(
+        Block::default().style(Style::default().fg(theme.foreground).bg(theme.background)),
+        area,
+    );
+
     if area.width < 72 || area.height < 20 {
-        draw_too_small(frame, area);
+        draw_too_small(frame, area, theme);
         return;
     }
 
     if area.height < 30 {
-        draw_compact(frame, app, area);
+        draw_compact(frame, app, area, theme);
         if app.show_help {
-            draw_help(frame, area);
+            draw_help(frame, area, theme);
         }
         return;
     }
@@ -54,31 +54,31 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
         ])
         .split(area);
 
-    draw_header(frame, app, vertical[0]);
+    draw_header(frame, app, vertical[0], theme);
 
     let overview = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
         .split(vertical[1]);
-    draw_cpu(frame, app, overview[0]);
-    draw_memory(frame, app, overview[1]);
+    draw_cpu(frame, app, overview[0], theme);
+    draw_memory(frame, app, overview[1], theme);
 
     let io = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(48), Constraint::Percentage(52)])
         .split(vertical[2]);
-    draw_network(frame, app, io[0]);
-    draw_disks(frame, app, io[1]);
+    draw_network(frame, app, io[0], theme);
+    draw_disks(frame, app, io[1], theme);
 
-    draw_processes(frame, app, vertical[3]);
-    draw_footer(frame, app, vertical[4]);
+    draw_processes(frame, app, vertical[3], theme);
+    draw_footer(frame, app, vertical[4], theme);
 
     if app.show_help {
-        draw_help(frame, area);
+        draw_help(frame, area, theme);
     }
 }
 
-fn draw_compact(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
+fn draw_compact(frame: &mut Frame<'_>, app: &mut App, area: Rect, theme: Theme) {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -90,52 +90,48 @@ fn draw_compact(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         ])
         .split(area);
 
-    draw_header(frame, app, vertical[0]);
-    draw_cpu(frame, app, vertical[1]);
-    draw_memory(frame, app, vertical[2]);
-    draw_processes(frame, app, vertical[3]);
-    draw_footer(frame, app, vertical[4]);
+    draw_header(frame, app, vertical[0], theme);
+    draw_cpu(frame, app, vertical[1], theme);
+    draw_memory(frame, app, vertical[2], theme);
+    draw_processes(frame, app, vertical[3], theme);
+    draw_footer(frame, app, vertical[4], theme);
 }
 
-fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
+fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
     let status = if app.paused {
-        Span::styled(
-            " PAUSED ",
-            Style::default().fg(Color::Black).bg(WARN).bold(),
-        )
+        chip(" PAUSED ", theme.background, theme.warning)
     } else if app.has_sample {
-        Span::styled(" LIVE ", Style::default().fg(Color::Black).bg(GOOD).bold())
+        chip(" LIVE ", theme.background, theme.good)
     } else {
-        Span::styled(
-            " WARMING UP ",
-            Style::default().fg(Color::Black).bg(WARN).bold(),
-        )
+        chip(" WARMING UP ", theme.background, theme.warning)
     };
 
     let title = Line::from(vec![
-        Span::styled(
-            " btop-win ",
-            Style::default()
-                .fg(Color::Black)
-                .bg(PRIMARY)
-                .add_modifier(Modifier::BOLD),
-        ),
+        chip(" btop-win ", theme.background, theme.primary),
         Span::raw("  "),
         status,
         Span::raw("  "),
         Span::styled(
             app.snapshot.host_name.as_str(),
-            Style::default().fg(Color::White).bold(),
+            Style::default()
+                .fg(theme.foreground)
+                .add_modifier(Modifier::BOLD),
         ),
-        Span::raw("  "),
+        Span::styled("  •  ", Style::default().fg(theme.border)),
         Span::styled(
             app.snapshot.os_version.as_str(),
-            Style::default().fg(Color::Gray),
+            Style::default().fg(theme.muted),
+        ),
+        Span::raw("  "),
+        chip(
+            format!(" {} ", theme.name),
+            theme.background,
+            theme.secondary,
         ),
     ]);
 
     let right = format!(
-        "uptime {} | collect {:.1}ms draw {:.1}ms skip {}",
+        "up {}  collect {:.1}ms  draw {:.1}ms  skip {}",
         format_uptime(app.snapshot.uptime_seconds),
         app.snapshot.diagnostics.collection_duration_ms,
         app.last_render_duration_ms,
@@ -144,37 +140,49 @@ fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(border_style());
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.primary))
+        .style(
+            Style::default()
+                .fg(theme.foreground)
+                .bg(theme.panel_background),
+        );
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    frame.render_widget(Paragraph::new(title), inner);
+    frame.render_widget(
+        Paragraph::new(title).style(Style::default().bg(theme.panel_background)),
+        inner,
+    );
 
     let right_width = right.chars().count() as u16;
-    if inner.width > right_width + 2 {
+    // Keep a conservative left-side reserve so host, OS and theme labels cannot
+    // be overwritten by diagnostics on narrow terminals.
+    if inner.width > right_width.saturating_add(48) {
         let right_area = Rect::new(inner.x + inner.width - right_width, inner.y, right_width, 1);
         frame.render_widget(
             Paragraph::new(right)
                 .alignment(Alignment::Right)
-                .style(Style::default().fg(Color::Gray)),
+                .style(Style::default().fg(theme.muted).bg(theme.panel_background)),
             right_area,
         );
     }
 }
 
-fn draw_cpu(frame: &mut Frame<'_>, app: &App, area: Rect) {
+fn draw_cpu(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
     let points = app.cpu_history.points();
     let x_max = app.cpu_history.len().saturating_sub(1).max(1) as f64;
+    let cpu_color = theme.usage_color(app.snapshot.cpu.total_usage);
     let datasets = vec![
         Dataset::default()
             .name("total")
             .marker(Marker::Braille)
             .graph_type(GraphType::Line)
-            .style(Style::default().fg(PRIMARY))
+            .style(Style::default().fg(cpu_color))
             .data(&points),
     ];
 
     let title = format!(
-        " CPU {:>5.1}%  {} MHz  {}/{} cores ",
+        " CPU  {:>5.1}%   {} MHz   {}/{} cores ",
         app.snapshot.cpu.total_usage,
         app.snapshot.cpu.frequency_mhz,
         app.snapshot.cpu.physical_cores.unwrap_or_default(),
@@ -182,19 +190,24 @@ fn draw_cpu(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
 
     let chart = Chart::new(datasets)
-        .block(panel(title))
-        .x_axis(Axis::default().bounds([0.0, x_max]))
+        .block(panel(theme, title, cpu_color))
+        .x_axis(
+            Axis::default()
+                .bounds([0.0, x_max])
+                .style(Style::default().fg(theme.muted)),
+        )
         .y_axis(
             Axis::default()
                 .bounds([0.0, 100.0])
+                .style(Style::default().fg(theme.muted))
                 .labels(["0%", "50%", "100%"]),
         );
     frame.render_widget(chart, area);
 }
 
-fn draw_memory(frame: &mut Frame<'_>, app: &App, area: Rect) {
+fn draw_memory(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
     let memory = &app.snapshot.memory;
-    let block = panel(" Memory ");
+    let block = panel(theme, " Memory ", theme.memory);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -207,22 +220,32 @@ fn draw_memory(frame: &mut Frame<'_>, app: &App, area: Rect) {
         ])
         .split(inner);
 
+    let ram_percentage = memory.used_ratio() * 100.0;
     let ram_label = format!(
-        "RAM  {} / {}  (available {})",
+        "RAM  {} / {}  (free {})",
         format_bytes(memory.used_bytes),
         format_bytes(memory.total_bytes),
         format_bytes(memory.available_bytes)
     );
     frame.render_widget(
         Gauge::default()
-            .block(Block::default().borders(Borders::BOTTOM))
-            .gauge_style(Style::default().fg(PRIMARY).bg(Color::Black))
-            .percent(percent(memory.used_ratio() * 100.0))
+            .block(
+                Block::default()
+                    .borders(Borders::BOTTOM)
+                    .border_style(Style::default().fg(theme.border)),
+            )
+            .gauge_style(
+                Style::default()
+                    .fg(theme.usage_color(ram_percentage))
+                    .bg(theme.background),
+            )
+            .percent(percent(ram_percentage))
             .label(ram_label)
             .use_unicode(true),
         rows[0],
     );
 
+    let swap_percentage = memory.swap_used_ratio() * 100.0;
     let swap_label = if memory.swap_total_bytes == 0 {
         "Swap unavailable".to_owned()
     } else {
@@ -234,33 +257,49 @@ fn draw_memory(frame: &mut Frame<'_>, app: &App, area: Rect) {
     };
     frame.render_widget(
         Gauge::default()
-            .block(Block::default().borders(Borders::BOTTOM))
-            .gauge_style(Style::default().fg(SECONDARY).bg(Color::Black))
-            .percent(percent(memory.swap_used_ratio() * 100.0))
+            .block(
+                Block::default()
+                    .borders(Borders::BOTTOM)
+                    .border_style(Style::default().fg(theme.border)),
+            )
+            .gauge_style(Style::default().fg(theme.swap).bg(theme.background))
+            .percent(percent(swap_percentage))
             .label(swap_label)
             .use_unicode(true),
         rows[1],
     );
 
-    let core_text = app
+    let core_spans = app
         .snapshot
         .cpu
         .per_core_usage
         .iter()
         .take(8)
         .enumerate()
-        .map(|(index, usage)| format!("C{index}: {:>4.0}%", usage))
-        .collect::<Vec<_>>()
-        .join("  ");
+        .flat_map(|(index, usage)| {
+            [
+                Span::styled(
+                    format!("C{index}"),
+                    Style::default().fg(theme.muted).bg(theme.panel_background),
+                ),
+                Span::styled(
+                    format!(" {:>3.0}%  ", usage),
+                    Style::default()
+                        .fg(theme.usage_color(*usage))
+                        .bg(theme.panel_background),
+                ),
+            ]
+        })
+        .collect::<Vec<_>>();
     frame.render_widget(
-        Paragraph::new(core_text)
-            .style(Style::default().fg(Color::Gray))
+        Paragraph::new(Line::from(core_spans))
+            .style(Style::default().bg(theme.panel_background))
             .wrap(Wrap { trim: true }),
         rows[2],
     );
 }
 
-fn draw_network(frame: &mut Frame<'_>, app: &App, area: Rect) {
+fn draw_network(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
     let received = app.network_received_history.points();
     let transmitted = app.network_transmitted_history.points();
     let x_max = app
@@ -281,19 +320,19 @@ fn draw_network(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .name("down")
             .marker(Marker::Braille)
             .graph_type(GraphType::Line)
-            .style(Style::default().fg(GOOD))
+            .style(Style::default().fg(theme.download))
             .data(&received),
         Dataset::default()
             .name("up")
             .marker(Marker::Braille)
             .graph_type(GraphType::Line)
-            .style(Style::default().fg(SECONDARY))
+            .style(Style::default().fg(theme.upload))
             .data(&transmitted),
     ];
 
     let title = format!(
-        " Network [{} | {} adapters]  ↓ {}  ↑ {}  total ↓ {} ↑ {} ",
-        truncate(network.name, 24),
+        " Network  [{} | {}]   ↓ {}   ↑ {}   total ↓ {} ↑ {} ",
+        truncate(network.name, 22),
         network.adapter_count,
         format_rate(network.received_bytes_per_second),
         format_rate(network.transmitted_bytes_per_second),
@@ -301,33 +340,56 @@ fn draw_network(frame: &mut Frame<'_>, app: &App, area: Rect) {
         format_bytes(network.total_transmitted_bytes),
     );
     let chart = Chart::new(datasets)
-        .block(panel(title))
-        .x_axis(Axis::default().bounds([0.0, x_max]))
-        .y_axis(Axis::default().bounds([0.0, y_max * 1.1]));
+        .block(panel(theme, title, theme.download))
+        .x_axis(
+            Axis::default()
+                .bounds([0.0, x_max])
+                .style(Style::default().fg(theme.muted)),
+        )
+        .y_axis(
+            Axis::default()
+                .bounds([0.0, y_max * 1.1])
+                .style(Style::default().fg(theme.muted)),
+        );
     frame.render_widget(chart, area);
 }
 
-fn draw_disks(frame: &mut Frame<'_>, app: &App, area: Rect) {
+fn draw_disks(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
     let header = Row::new(["Mount", "FS", "Used", "Read", "Write"])
-        .style(Style::default().fg(PRIMARY).bold())
+        .style(
+            Style::default()
+                .fg(theme.primary)
+                .bg(theme.panel_background)
+                .add_modifier(Modifier::BOLD),
+        )
         .bottom_margin(1);
 
     let rows = app.snapshot.disks.iter().map(|disk| {
+        let used_percentage = disk.used_ratio() * 100.0;
         Row::new(vec![
             Cell::from(if disk.name.is_empty() {
                 disk.mount_point.clone()
             } else {
                 format!("{} {}", disk.mount_point, disk.name)
             }),
-            Cell::from(format!("{}/{}", disk.file_system, disk.kind)),
+            Cell::from(format!("{}/{}", disk.file_system, disk.kind))
+                .style(Style::default().fg(theme.muted)),
             Cell::from(format!(
                 "{:>3}% {}",
-                percent(disk.used_ratio() * 100.0),
+                percent(used_percentage),
                 format_bytes(disk.used_bytes())
-            )),
-            Cell::from(format_rate(disk.read_bytes_per_second)),
-            Cell::from(format_rate(disk.written_bytes_per_second)),
+            ))
+            .style(Style::default().fg(theme.usage_color(used_percentage))),
+            Cell::from(format_rate(disk.read_bytes_per_second))
+                .style(Style::default().fg(theme.download)),
+            Cell::from(format_rate(disk.written_bytes_per_second))
+                .style(Style::default().fg(theme.upload)),
         ])
+        .style(
+            Style::default()
+                .fg(theme.foreground)
+                .bg(theme.panel_background),
+        )
     });
 
     let table = Table::new(
@@ -342,33 +404,57 @@ fn draw_disks(frame: &mut Frame<'_>, app: &App, area: Rect) {
     )
     .header(header)
     .column_spacing(1)
-    .block(panel(" Disks "));
+    .style(
+        Style::default()
+            .fg(theme.foreground)
+            .bg(theme.panel_background),
+    )
+    .block(panel(theme, " Disks ", theme.secondary));
     frame.render_widget(table, area);
 }
 
-fn draw_processes(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
+fn draw_processes(frame: &mut Frame<'_>, app: &mut App, area: Rect, theme: Theme) {
     let columns = process_columns(area.width);
     let header = Row::new(process_header(columns))
-        .style(Style::default().fg(PRIMARY).bold())
+        .style(
+            Style::default()
+                .fg(theme.primary)
+                .bg(theme.panel_background)
+                .add_modifier(Modifier::BOLD),
+        )
         .bottom_margin(1);
 
     let rows = app
         .visible_processes()
         .map(|process| {
             let mut cells = vec![
-                Cell::from(process.pid.to_string()),
+                Cell::from(process.pid.to_string()).style(Style::default().fg(theme.muted)),
                 Cell::from(process.name.clone()),
-                Cell::from(format!("{:>6.1}%", process.cpu_usage)),
-                Cell::from(format_bytes(process.memory_bytes)),
+                Cell::from(format!("{:>6.1}%", process.cpu_usage))
+                    .style(Style::default().fg(theme.usage_color(process.cpu_usage))),
+                Cell::from(format_bytes(process.memory_bytes))
+                    .style(Style::default().fg(theme.memory)),
             ];
             if matches!(columns, ProcessColumns::Io | ProcessColumns::Full) {
-                cells.push(Cell::from(format_rate(process.read_bytes_per_second)));
-                cells.push(Cell::from(format_rate(process.written_bytes_per_second)));
+                cells.push(
+                    Cell::from(format_rate(process.read_bytes_per_second))
+                        .style(Style::default().fg(theme.download)),
+                );
+                cells.push(
+                    Cell::from(format_rate(process.written_bytes_per_second))
+                        .style(Style::default().fg(theme.upload)),
+                );
             }
             if columns == ProcessColumns::Full {
-                cells.push(Cell::from(process.status.clone()));
+                cells.push(
+                    Cell::from(process.status.clone()).style(Style::default().fg(theme.muted)),
+                );
             }
-            Row::new(cells)
+            Row::new(cells).style(
+                Style::default()
+                    .fg(theme.foreground)
+                    .bg(theme.panel_background),
+            )
         })
         .collect::<Vec<_>>();
 
@@ -384,14 +470,14 @@ fn draw_processes(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         .unwrap_or_else(|| "no process selected".to_owned());
     let visible_count = rows.len();
     let filter = if app.filter_mode {
-        format!("filter: /{}_", app.process_filter)
+        format!("filter /{}_", app.process_filter)
     } else if app.process_filter.is_empty() {
-        "filter: all".to_owned()
+        "filter all".to_owned()
     } else {
-        format!("filter: {}", app.process_filter)
+        format!("filter {}", app.process_filter)
     };
     let title = format!(
-        " Processes {}/{}  sort: {} {}  {}  |  {} ",
+        " Processes  {}/{}   sort {} {}   {}   •   {} ",
         visible_count,
         app.snapshot.processes.len(),
         app.process_sort.label(),
@@ -403,9 +489,19 @@ fn draw_processes(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
     let table = Table::new(rows, process_widths(columns))
         .header(header)
         .column_spacing(1)
-        .row_highlight_style(Style::default().fg(Color::Black).bg(PRIMARY).bold())
-        .highlight_symbol("▶ ")
-        .block(panel(title));
+        .style(
+            Style::default()
+                .fg(theme.foreground)
+                .bg(theme.panel_background),
+        )
+        .row_highlight_style(
+            Style::default()
+                .fg(theme.selected_foreground)
+                .bg(theme.selected_background)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▸ ")
+        .block(panel(theme, title, theme.secondary));
 
     frame.render_stateful_widget(table, area, &mut app.process_table_state);
 }
@@ -447,82 +543,180 @@ fn process_widths(columns: ProcessColumns) -> Vec<Constraint> {
     widths
 }
 
-fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
-    let text = if app.show_help {
-        "? close help"
+fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
+    let line = if app.show_help {
+        Line::from(vec![
+            Span::styled(" ? ", key_style(theme)),
+            Span::styled(" close help ", label_style(theme)),
+        ])
     } else if app.filter_mode {
-        "type to filter  Enter keep  Esc clear  Backspace delete"
+        let mut spans = Vec::new();
+        push_hint(&mut spans, theme, "type", "filter");
+        push_hint(&mut spans, theme, "Enter", "keep");
+        push_hint(&mut spans, theme, "Esc", "clear");
+        push_hint(&mut spans, theme, "⌫", "delete");
+        Line::from(spans)
     } else {
-        "q quit  / filter  [] adapter  a all  c/m/n/d/w sort  o order  ↑↓ select  ? help"
+        let mut spans = Vec::new();
+        push_hint(&mut spans, theme, "q", "quit");
+        push_hint(&mut spans, theme, "/", "filter");
+        push_hint(&mut spans, theme, "[ ]", "adapter");
+        push_hint(&mut spans, theme, "c/m/n", "sort");
+        push_hint(&mut spans, theme, "↑↓", "select");
+        push_hint(&mut spans, theme, "?", "help");
+        Line::from(spans)
     };
     frame.render_widget(
-        Paragraph::new(text)
+        Paragraph::new(line)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::Gray)),
+            .style(Style::default().fg(theme.muted).bg(theme.background)),
         area,
     );
 }
 
-fn draw_help(frame: &mut Frame<'_>, area: Rect) {
-    let popup = centered_rect(74, 86, area);
+fn draw_help(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
+    let popup = centered_rect(76, 88, area);
     frame.render_widget(Clear, popup);
     let text = Text::from(vec![
         Line::from(Span::styled(
             "Keyboard",
-            Style::default().fg(PRIMARY).bold(),
+            Style::default()
+                .fg(theme.primary)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from("q / Esc / Ctrl+C    quit; Esc clears an active filter first"),
-        Line::from("/                    edit process filter"),
-        Line::from("Enter                keep filter and leave edit mode"),
-        Line::from("Backspace / Esc      edit or clear the filter"),
-        Line::from("[ / ]                previous or next network adapter"),
-        Line::from("a                    return to aggregate all-adapter network view"),
-        Line::from("c/m/n/d/w            sort CPU/memory/name/read/write"),
-        Line::from("o                    toggle ascending/descending order"),
-        Line::from("s                    cycle process sort column"),
-        Line::from("p / Space            pause or resume sampling"),
-        Line::from("Up/Down or j/k       select process"),
-        Line::from("PageUp/PageDown      move ten rows"),
-        Line::from("Home/End             first or last visible process"),
-        Line::from("r                    reset history charts"),
-        Line::from("?                    close this help"),
+        help_line(
+            theme,
+            "q / Esc / Ctrl+C",
+            "quit; Esc clears an active filter first",
+        ),
+        help_line(theme, "/", "edit process filter"),
+        help_line(theme, "Enter", "keep filter and leave edit mode"),
+        help_line(theme, "Backspace / Esc", "edit or clear the filter"),
+        help_line(theme, "[ / ]", "previous or next network adapter"),
+        help_line(theme, "a", "return to aggregate all-adapter network view"),
+        help_line(theme, "c/m/n/d/w", "sort CPU/memory/name/read/write"),
+        help_line(theme, "o", "toggle ascending/descending order"),
+        help_line(theme, "s", "cycle process sort column"),
+        help_line(theme, "p / Space", "pause or resume sampling"),
+        help_line(theme, "Up/Down or j/k", "select process"),
+        help_line(theme, "PageUp/PageDown", "move ten rows"),
+        help_line(theme, "Home/End", "first or last visible process"),
+        help_line(theme, "r", "reset history charts"),
+        help_line(theme, "?", "close this help"),
         Line::from(""),
+        Line::from(vec![
+            Span::styled("Theme  ", Style::default().fg(theme.secondary)),
+            Span::styled(
+                format!(
+                    "{}  (start with --theme btop|dracula|nord|mono)",
+                    theme.name
+                ),
+                Style::default().fg(theme.muted),
+            ),
+        ]),
         Line::from(Span::styled(
-            "Process columns adapt to terminal width. Network histories reset on adapter changes so samples from different interfaces are never mixed.",
-            Style::default().fg(Color::Gray),
+            "Process columns adapt to terminal width. Network histories reset when the selected adapter changes.",
+            Style::default().fg(theme.muted),
         )),
     ]);
     frame.render_widget(
         Paragraph::new(text)
-            .block(panel(" Help "))
+            .block(panel(theme, " Help ", theme.primary))
+            .style(
+                Style::default()
+                    .fg(theme.foreground)
+                    .bg(theme.panel_background),
+            )
             .wrap(Wrap { trim: false }),
         popup,
     );
 }
 
-fn draw_too_small(frame: &mut Frame<'_>, area: Rect) {
+fn draw_too_small(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
     frame.render_widget(
         Paragraph::new(format!(
             "btop-win needs at least 72×20 cells.\nCurrent terminal: {}×{}\n\nResize the terminal or press q to quit.",
             area.width, area.height
         ))
         .alignment(Alignment::Center)
-        .block(panel(" Terminal too small ")),
+        .style(
+            Style::default()
+                .fg(theme.foreground)
+                .bg(theme.panel_background),
+        )
+        .block(panel(
+            theme,
+            " Terminal too small ",
+            theme.warning,
+        )),
         centered_rect(60, 40, area),
     );
 }
 
-fn panel<'a>(title: impl Into<Line<'a>>) -> Block<'a> {
+fn panel<'a>(theme: Theme, title: impl Into<Line<'a>>, accent: Color) -> Block<'a> {
     Block::default()
         .borders(Borders::ALL)
-        .border_style(border_style())
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(accent))
         .title(title)
-        .title_style(Style::default().fg(Color::White).bold())
+        .title_style(
+            Style::default()
+                .fg(theme.title)
+                .bg(theme.panel_background)
+                .add_modifier(Modifier::BOLD),
+        )
+        .style(
+            Style::default()
+                .fg(theme.foreground)
+                .bg(theme.panel_background),
+        )
 }
 
-fn border_style() -> Style {
-    Style::default().fg(BORDER)
+fn chip(text: impl Into<String>, foreground: Color, background: Color) -> Span<'static> {
+    Span::styled(
+        text.into(),
+        Style::default()
+            .fg(foreground)
+            .bg(background)
+            .add_modifier(Modifier::BOLD),
+    )
+}
+
+fn push_hint(spans: &mut Vec<Span<'static>>, theme: Theme, key: &str, label: &str) {
+    if !spans.is_empty() {
+        spans.push(Span::raw("  "));
+    }
+    spans.push(Span::styled(format!(" {key} "), key_style(theme)));
+    spans.push(Span::styled(format!(" {label} "), label_style(theme)));
+}
+
+fn key_style(theme: Theme) -> Style {
+    Style::default()
+        .fg(theme.background)
+        .bg(theme.primary)
+        .add_modifier(Modifier::BOLD)
+}
+
+fn label_style(theme: Theme) -> Style {
+    Style::default().fg(theme.muted).bg(theme.background)
+}
+
+fn help_line(theme: Theme, key: &str, description: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            format!("{key:<21}"),
+            Style::default()
+                .fg(theme.secondary)
+                .bg(theme.panel_background),
+        ),
+        Span::styled(
+            description.to_owned(),
+            Style::default()
+                .fg(theme.foreground)
+                .bg(theme.panel_background),
+        ),
+    ])
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
@@ -573,5 +767,10 @@ mod tests {
         assert_eq!(process_columns(72), ProcessColumns::Compact);
         assert_eq!(process_columns(96), ProcessColumns::Io);
         assert_eq!(process_columns(124), ProcessColumns::Full);
+    }
+
+    #[test]
+    fn configured_theme_is_visible_in_header_palette() {
+        assert_eq!(crate::theme::ThemeName::Nord.palette().name, "nord");
     }
 }
