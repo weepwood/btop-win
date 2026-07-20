@@ -1,8 +1,9 @@
 use std::{
+    io,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc::Sender,
+        mpsc::{SyncSender, TrySendError},
     },
     thread,
     time::{Duration, Instant},
@@ -15,25 +16,32 @@ use crate::model::{
 };
 
 pub fn spawn_collector(
-    sender: Sender<Snapshot>,
+    sender: SyncSender<Snapshot>,
     stop: Arc<AtomicBool>,
     interval: Duration,
-) -> thread::JoinHandle<()> {
-    thread::spawn(move || {
-        let mut collector = Collector::new();
+) -> io::Result<thread::JoinHandle<()>> {
+    thread::Builder::new()
+        .name("metrics-collector".to_owned())
+        .spawn(move || {
+            let mut collector = Collector::new();
 
-        while !stop.load(Ordering::Relaxed) {
-            let cycle_started = Instant::now();
-            if sender.send(collector.sample()).is_err() {
-                break;
-            }
+            while !stop.load(Ordering::Relaxed) {
+                let cycle_started = Instant::now();
+                match sender.try_send(collector.sample()) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(_)) => {
+                        // The UI has not consumed the previous snapshot yet.
+                        // Drop this sample instead of growing a stale backlog.
+                    }
+                    Err(TrySendError::Disconnected(_)) => break,
+                }
 
-            let elapsed = cycle_started.elapsed();
-            if elapsed < interval {
-                sleep_interruptibly(interval - elapsed, &stop);
+                let elapsed = cycle_started.elapsed();
+                if elapsed < interval {
+                    sleep_interruptibly(interval - elapsed, &stop);
+                }
             }
-        }
-    })
+        })
 }
 
 fn sleep_interruptibly(duration: Duration, stop: &AtomicBool) {
@@ -52,6 +60,9 @@ struct Collector {
     networks: Networks,
     disks: Disks,
     last_sample: Instant,
+    host_name: String,
+    os_version: String,
+    physical_cores: Option<usize>,
 }
 
 impl Collector {
@@ -60,6 +71,9 @@ impl Collector {
         let networks = Networks::new_with_refreshed_list();
         let disks = Disks::new_with_refreshed_list();
         let last_sample = Instant::now();
+        let host_name = System::host_name().unwrap_or_else(|| "Windows".to_owned());
+        let os_version = System::long_os_version().unwrap_or_else(|| "Windows".to_owned());
+        let physical_cores = System::physical_core_count();
 
         // CPU and per-process percentages require two observations separated by
         // at least sysinfo's minimum update interval. Network and disk counters
@@ -71,6 +85,9 @@ impl Collector {
             networks,
             disks,
             last_sample,
+            host_name,
+            os_version,
+            physical_cores,
         }
     }
 
@@ -89,8 +106,8 @@ impl Collector {
         self.disks.refresh(true);
 
         Snapshot {
-            host_name: System::host_name().unwrap_or_else(|| "Windows".to_owned()),
-            os_version: System::long_os_version().unwrap_or_else(|| "Windows".to_owned()),
+            host_name: self.host_name.clone(),
+            os_version: self.os_version.clone(),
             uptime_seconds: System::uptime(),
             cpu: self.cpu_snapshot(),
             memory: self.memory_snapshot(),
@@ -106,7 +123,7 @@ impl Collector {
             total_usage: self.system.global_cpu_usage() as f64,
             frequency_mhz: cpus.first().map_or(0, |cpu| cpu.frequency()),
             logical_cores: cpus.len(),
-            physical_cores: System::physical_core_count(),
+            physical_cores: self.physical_cores,
             per_core_usage: cpus.iter().map(|cpu| cpu.cpu_usage() as f64).collect(),
         }
     }
@@ -122,30 +139,18 @@ impl Collector {
     }
 
     fn network_snapshot(&self, elapsed_seconds: f64) -> NetworkSnapshot {
-        let received = self
+        let (received, transmitted, total_received, total_transmitted) = self
             .networks
             .list()
             .values()
-            .map(|data| data.received())
-            .sum::<u64>();
-        let transmitted = self
-            .networks
-            .list()
-            .values()
-            .map(|data| data.transmitted())
-            .sum::<u64>();
-        let total_received = self
-            .networks
-            .list()
-            .values()
-            .map(|data| data.total_received())
-            .sum::<u64>();
-        let total_transmitted = self
-            .networks
-            .list()
-            .values()
-            .map(|data| data.total_transmitted())
-            .sum::<u64>();
+            .fold((0_u64, 0_u64, 0_u64, 0_u64), |totals, data| {
+                (
+                    totals.0.saturating_add(data.received()),
+                    totals.1.saturating_add(data.transmitted()),
+                    totals.2.saturating_add(data.total_received()),
+                    totals.3.saturating_add(data.total_transmitted()),
+                )
+            });
 
         NetworkSnapshot {
             received_bytes_per_second: received as f64 / elapsed_seconds,
