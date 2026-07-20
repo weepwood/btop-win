@@ -128,9 +128,11 @@ fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     ]);
 
     let right = format!(
-        "uptime {}  |  {} processes",
+        "uptime {} | collect {:.1}ms draw {:.1}ms skip {}",
         format_uptime(app.snapshot.uptime_seconds),
-        app.snapshot.processes.len()
+        app.snapshot.diagnostics.collection_duration_ms,
+        app.last_render_duration_ms,
+        app.snapshot.diagnostics.skipped_samples,
     );
 
     let block = Block::default()
@@ -340,17 +342,20 @@ fn draw_processes(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         .style(Style::default().fg(PRIMARY).bold())
         .bottom_margin(1);
 
-    let rows = app.snapshot.processes.iter().map(|process| {
-        Row::new(vec![
-            Cell::from(process.pid.to_string()),
-            Cell::from(process.name.clone()),
-            Cell::from(format!("{:>6.1}%", process.cpu_usage)),
-            Cell::from(format_bytes(process.memory_bytes)),
-            Cell::from(format_rate(process.read_bytes_per_second)),
-            Cell::from(format_rate(process.written_bytes_per_second)),
-            Cell::from(process.status.clone()),
-        ])
-    });
+    let rows = app
+        .visible_processes()
+        .map(|process| {
+            Row::new(vec![
+                Cell::from(process.pid.to_string()),
+                Cell::from(process.name.clone()),
+                Cell::from(format!("{:>6.1}%", process.cpu_usage)),
+                Cell::from(format_bytes(process.memory_bytes)),
+                Cell::from(format_rate(process.read_bytes_per_second)),
+                Cell::from(format_rate(process.written_bytes_per_second)),
+                Cell::from(process.status.clone()),
+            ])
+        })
+        .collect::<Vec<_>>();
 
     let selected = app
         .selected_process()
@@ -362,10 +367,22 @@ fn draw_processes(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
             }
         })
         .unwrap_or_else(|| "no process selected".to_owned());
+    let visible_count = rows.len();
+    let filter = if app.filter_mode {
+        format!("filter: /{}_", app.process_filter)
+    } else if app.process_filter.is_empty() {
+        "filter: all".to_owned()
+    } else {
+        format!("filter: {}", app.process_filter)
+    };
     let title = format!(
-        " Processes  sort: {}  |  {} ",
+        " Processes {}/{}  sort: {} {}  {}  |  {} ",
+        visible_count,
+        app.snapshot.processes.len(),
         app.process_sort.label(),
-        truncate(&selected, area.width.saturating_sub(35) as usize)
+        app.sort_direction.label(),
+        filter,
+        truncate(&selected, area.width.saturating_sub(62) as usize)
     );
 
     let table = Table::new(
@@ -392,8 +409,10 @@ fn draw_processes(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
 fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let text = if app.show_help {
         "? close help"
+    } else if app.filter_mode {
+        "type to filter  Enter keep  Esc clear  Backspace delete"
     } else {
-        "q quit  p pause  s sort  ↑↓/jk select  PgUp/PgDn jump  r reset  ? help"
+        "q quit  / filter  c/m/n/d/w sort  o order  ↑↓/jk select  p pause  ? help"
     };
     frame.render_widget(
         Paragraph::new(text)
@@ -404,7 +423,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
 }
 
 fn draw_help(frame: &mut Frame<'_>, area: Rect) {
-    let popup = centered_rect(66, 76, area);
+    let popup = centered_rect(72, 82, area);
     frame.render_widget(Clear, popup);
     let text = Text::from(vec![
         Line::from(Span::styled(
@@ -412,17 +431,22 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
             Style::default().fg(PRIMARY).bold(),
         )),
         Line::from(""),
-        Line::from("q / Esc / Ctrl+C    quit"),
-        Line::from("p / Space           pause or resume sampling"),
-        Line::from("s                   cycle process sorting"),
-        Line::from("Up/Down or j/k      select process"),
-        Line::from("PageUp/PageDown     move ten rows"),
-        Line::from("Home/End            first or last process"),
-        Line::from("r                   reset history charts"),
-        Line::from("?                   close this help"),
+        Line::from("q / Esc / Ctrl+C    quit; Esc clears an active filter first"),
+        Line::from("/                    edit process filter"),
+        Line::from("Enter                keep filter and leave edit mode"),
+        Line::from("Backspace / Esc      edit or clear the filter"),
+        Line::from("c/m/n/d/w            sort CPU/memory/name/read/write"),
+        Line::from("o                    toggle ascending/descending order"),
+        Line::from("s                    cycle process sort column"),
+        Line::from("p / Space            pause or resume sampling"),
+        Line::from("Up/Down or j/k       select process"),
+        Line::from("PageUp/PageDown      move ten rows"),
+        Line::from("Home/End             first or last visible process"),
+        Line::from("r                    reset history charts"),
+        Line::from("?                    close this help"),
         Line::from(""),
         Line::from(Span::styled(
-            "Metrics use differences between adjacent samples. The collector runs on a background thread; the UI only renders the latest immutable snapshot.",
+            "Header diagnostics show collector duration, previous render duration and the cumulative number of snapshots dropped while the UI was busy.",
             Style::default().fg(Color::Gray),
         )),
     ]);
