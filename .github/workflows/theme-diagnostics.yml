@@ -6,54 +6,34 @@ on:
       - feat/btop-inspired-theme
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: feat/btop-inspired-theme
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
 
-      - name: Apply rustfmt
-        run: cargo fmt --all
-
-      - name: Capture rustfmt patch
-        run: git diff > rustfmt.patch
-
-      - name: Run Clippy diagnostics
+      - name: Apply and commit rustfmt
         shell: bash
         run: |
-          set +e
-          cargo clippy --all-targets --all-features -- -D warnings > clippy.log 2>&1
-          echo $? > clippy.exit
-          exit 0
+          cargo fmt --all
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src
+            git commit -m "style: apply rustfmt"
+            git push origin HEAD:feat/btop-inspired-theme
+          fi
 
-      - name: Run tests diagnostics
-        shell: bash
-        run: |
-          set +e
-          cargo test --all-features > test.log 2>&1
-          echo $? > test.exit
-          exit 0
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: theme-diagnostics
-          path: |
-            src
-            rustfmt.patch
-            clippy.log
-            clippy.exit
-            test.log
-            test.exit
-
-      - name: Verify diagnostics
-        shell: bash
-        run: |
-          git diff --exit-code
-          test "$(cat clippy.exit)" = "0"
-          test "$(cat test.exit)" = "0"
+      - name: Test
+        run: cargo test --all-features
