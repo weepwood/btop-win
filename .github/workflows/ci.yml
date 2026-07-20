@@ -24,16 +24,54 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
 
-      - name: Format
+      - name: Apply rustfmt
         if: matrix.os == 'ubuntu-latest'
-        run: cargo fmt --all -- --check
+        run: cargo fmt --all
 
-      - name: Clippy
+      - name: Capture rustfmt patch
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: git diff > rustfmt.patch
+
+      - name: Clippy (Ubuntu diagnostics)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set +e
+          cargo clippy --quiet --all-targets --all-features -- -D warnings > clippy.log 2>&1
+          code=$?
+          echo "CLIPPY_EXIT=$code" >> "$GITHUB_ENV"
+          exit 0
+
+      - name: Clippy (Windows)
+        if: matrix.os == 'windows-latest'
         run: cargo clippy --quiet --all-targets --all-features -- -D warnings
 
       - name: Test
+        if: matrix.os == 'windows-latest' || env.CLIPPY_EXIT == '0'
         run: cargo test --quiet --all-features
 
       - name: Release build
         if: matrix.os == 'windows-latest'
         run: cargo build --quiet --release
+
+      - name: Upload diagnostics
+        if: matrix.os == 'ubuntu-latest' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adapter-pr-diagnostics
+          path: |
+            src
+            rustfmt.patch
+            clippy.log
+          if-no-files-found: warn
+
+      - name: Verify formatting
+        if: matrix.os == 'ubuntu-latest' && env.CLIPPY_EXIT == '0'
+        shell: bash
+        run: git diff --exit-code
+
+      - name: Fail on Clippy diagnostics
+        if: matrix.os == 'ubuntu-latest' && env.CLIPPY_EXIT != '0'
+        shell: bash
+        run: exit 1
