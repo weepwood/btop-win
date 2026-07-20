@@ -12,7 +12,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, TryRecvError},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Result, bail};
@@ -88,7 +88,9 @@ fn run(terminal: &mut Tui, config: Config) -> Result<()> {
             }
 
             if dirty {
+                let render_started = Instant::now();
                 terminal.draw(|frame| ui::draw(frame, &mut app))?;
+                app.record_render(render_started.elapsed());
                 dirty = false;
             }
 
