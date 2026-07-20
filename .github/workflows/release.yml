@@ -86,7 +86,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $existing = gh api "repos/${{ github.repository }}/git/ref/tags/$env:TAG" 2>$null
+          gh api "repos/${{ github.repository }}/git/ref/tags/$env:TAG" 2>$null
           if ($LASTEXITCODE -ne 0) {
             gh api --method POST "repos/${{ github.repository }}/git/refs" `
               -f "ref=refs/tags/$env:TAG" `
@@ -107,4 +107,42 @@ jobs:
               --generate-notes `
               --target "${{ github.sha }}" `
               --verify-tag
+          }
+
+      - name: Record release manifest
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --tags --force
+          $assetHash = (Get-FileHash $env:ARCHIVE -Algorithm SHA256).Hash.ToLowerInvariant()
+          $tagCommit = (git rev-list -n 1 $env:TAG).Trim()
+          $assetUrl = "https://github.com/${{ github.repository }}/releases/download/$env:TAG/$env:ARCHIVE"
+          $manifestObject = [ordered]@{
+            version = $env:VERSION
+            tag = $env:TAG
+            tag_commit = $tagCommit
+            workflow_commit = "${{ github.sha }}"
+            platform = "x86_64-pc-windows-msvc"
+            asset = $env:ARCHIVE
+            asset_url = $assetUrl
+            sha256 = $assetHash
+            published_at = (Get-Date).ToUniversalTime().ToString('o')
+          }
+          $manifest = $manifestObject | ConvertTo-Json
+          $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($manifest))
+          $path = "releases/$env:TAG.json"
+          $existing = gh api "repos/${{ github.repository }}/contents/$path?ref=main" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $contentSha = ($existing | ConvertFrom-Json).sha
+            gh api --method PUT "repos/${{ github.repository }}/contents/$path" `
+              -f "message=chore: update $env:TAG release manifest" `
+              -f "content=$encoded" `
+              -f "sha=$contentSha" `
+              -f "branch=main"
+          } else {
+            gh api --method PUT "repos/${{ github.repository }}/contents/$path" `
+              -f "message=chore: record $env:TAG release manifest" `
+              -f "content=$encoded" `
+              -f "branch=main"
           }
