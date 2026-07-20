@@ -52,7 +52,16 @@ pub struct NetworkSnapshot {
     pub transmitted_bytes_per_second: f64,
     pub total_received_bytes: u64,
     pub total_transmitted_bytes: u64,
-    pub interface_count: usize,
+    pub adapters: Vec<NetworkAdapterSnapshot>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct NetworkAdapterSnapshot {
+    pub name: String,
+    pub received_bytes_per_second: f64,
+    pub transmitted_bytes_per_second: f64,
+    pub total_received_bytes: u64,
+    pub total_transmitted_bytes: u64,
 }
 
 #[derive(Clone, Debug, Default)]
