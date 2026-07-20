@@ -4,21 +4,60 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release.yml"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, for example 0.1.0"
+        required: false
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   windows-x64:
+    if: >-
+      github.ref_type == 'tag' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]'))
     runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+
       - uses: Swatinem/rust-cache@v2
+
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $tag = $env:GITHUB_REF_NAME
+            $version = $tag.TrimStart('v')
+          } elseif ('${{ github.event.inputs.version }}') {
+            $version = '${{ github.event.inputs.version }}'.TrimStart('v')
+            $tag = "v$version"
+          } else {
+            $manifest = Get-Content Cargo.toml -Raw
+            $match = [regex]::Match($manifest, '(?m)^version\s*=\s*"([^"]+)"')
+            if (-not $match.Success) {
+              throw 'Unable to resolve package version from Cargo.toml'
+            }
+            $version = $match.Groups[1].Value
+            $tag = "v$version"
+          }
+
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build
         run: cargo build --release --target x86_64-pc-windows-msvc
@@ -29,8 +68,7 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { 'dev' }
-          $folder = "btop-win-$version-x86_64-pc-windows-msvc"
+          $folder = "btop-win-$env:VERSION-x86_64-pc-windows-msvc"
           New-Item -ItemType Directory -Path $folder | Out-Null
           Copy-Item "target/x86_64-pc-windows-msvc/release/btop-win.exe" $folder
           Copy-Item README.md, LICENSE $folder
@@ -42,9 +80,31 @@ jobs:
           name: btop-win-windows-x64
           path: ${{ env.ARCHIVE }}
 
-      - name: Publish GitHub release
-        if: github.ref_type == 'tag'
+      - name: Create tag
+        if: github.ref_type != 'tag'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:GITHUB_REF_NAME $env:ARCHIVE --generate-notes --verify-tag
+        run: |
+          $existing = gh api "repos/${{ github.repository }}/git/ref/tags/$env:TAG" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh api --method POST "repos/${{ github.repository }}/git/refs" `
+              -f "ref=refs/tags/$env:TAG" `
+              -f "sha=${{ github.sha }}"
+          }
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view $env:TAG 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:TAG $env:ARCHIVE --clobber
+          } else {
+            gh release create $env:TAG $env:ARCHIVE `
+              --title "btop-win $env:TAG" `
+              --generate-notes `
+              --target "${{ github.sha }}" `
+              --verify-tag
+          }
