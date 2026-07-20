@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::VecDeque};
+use std::{cmp::Ordering, collections::VecDeque, time::Duration};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::widgets::TableState;
@@ -33,6 +33,43 @@ impl ProcessSort {
             Self::Read => "Read",
             Self::Write => "Write",
             Self::Name => "Name",
+        }
+    }
+
+    pub fn default_direction(self) -> SortDirection {
+        match self {
+            Self::Name => SortDirection::Ascending,
+            _ => SortDirection::Descending,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SortDirection {
+    Ascending,
+    #[default]
+    Descending,
+}
+
+impl SortDirection {
+    pub fn toggle(self) -> Self {
+        match self {
+            Self::Ascending => Self::Descending,
+            Self::Descending => Self::Ascending,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ascending => "asc",
+            Self::Descending => "desc",
+        }
+    }
+
+    fn apply(self, ordering: Ordering) -> Ordering {
+        match self {
+            Self::Ascending => ordering,
+            Self::Descending => ordering.reverse(),
         }
     }
 }
@@ -88,9 +125,14 @@ pub struct App {
     pub network_transmitted_history: History,
     pub process_table_state: TableState,
     pub process_sort: ProcessSort,
+    pub sort_direction: SortDirection,
+    pub process_filter: String,
+    pub filter_mode: bool,
     pub paused: bool,
     pub show_help: bool,
     pub has_sample: bool,
+    pub last_render_duration_ms: f64,
+    pub render_count: u64,
 }
 
 impl App {
@@ -103,9 +145,14 @@ impl App {
             network_transmitted_history: History::new(history_capacity),
             process_table_state: TableState::default().with_selected(0),
             process_sort: ProcessSort::default(),
+            sort_direction: SortDirection::default(),
+            process_filter: String::new(),
+            filter_mode: false,
             paused: false,
             show_help: false,
             has_sample: false,
+            last_render_duration_ms: 0.0,
+            render_count: 0,
         }
     }
 
@@ -130,30 +177,44 @@ impl App {
         true
     }
 
+    pub fn record_render(&mut self, duration: Duration) {
+        self.last_render_duration_ms = duration.as_secs_f64() * 1_000.0;
+        self.render_count = self.render_count.saturating_add(1);
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
         if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c')) {
             return true;
         }
 
+        if self.filter_mode {
+            self.handle_filter_key(key);
+            return false;
+        }
+
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => return true,
+            KeyCode::Char('q' | 'Q') => return true,
+            KeyCode::Esc if self.process_filter.is_empty() => return true,
+            KeyCode::Esc => self.clear_filter(),
             KeyCode::Char('?') => self.show_help = !self.show_help,
-            KeyCode::Char('p') | KeyCode::Char(' ') => self.paused = !self.paused,
-            KeyCode::Char('s') => {
-                let selected_pid = self.selected_process().map(|process| process.pid);
-                self.process_sort = self.process_sort.next();
-                self.sort_processes();
-                self.restore_process_selection(selected_pid);
-            }
-            KeyCode::Char('r') => self.clear_histories(),
+            KeyCode::Char('/') => self.filter_mode = true,
+            KeyCode::Char('p' | 'P') | KeyCode::Char(' ') => self.paused = !self.paused,
+            KeyCode::Char('s' | 'S') => self.cycle_sort(),
+            KeyCode::Char('o' | 'O') => self.toggle_sort_direction(),
+            KeyCode::Char('c' | 'C') => self.select_sort(ProcessSort::Cpu),
+            KeyCode::Char('m' | 'M') => self.select_sort(ProcessSort::Memory),
+            KeyCode::Char('d' | 'D') => self.select_sort(ProcessSort::Read),
+            KeyCode::Char('w' | 'W') => self.select_sort(ProcessSort::Write),
+            KeyCode::Char('n' | 'N') => self.select_sort(ProcessSort::Name),
+            KeyCode::Char('r' | 'R') => self.clear_histories(),
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::PageDown => self.move_selection(10),
             KeyCode::PageUp => self.move_selection(-10),
             KeyCode::Home => self.process_table_state.select(Some(0)),
-            KeyCode::End if !self.snapshot.processes.is_empty() => {
+            KeyCode::End if self.visible_process_count() > 0 => {
                 self.process_table_state
-                    .select(Some(self.snapshot.processes.len() - 1));
+                    .select(Some(self.visible_process_count() - 1));
             }
             _ => {}
         }
@@ -169,10 +230,52 @@ impl App {
         }
     }
 
+    pub fn visible_processes(&self) -> impl Iterator<Item = &ProcessSnapshot> {
+        let query = self.process_filter.to_lowercase();
+        self.snapshot
+            .processes
+            .iter()
+            .filter(move |process| process_matches_filter(process, &query))
+    }
+
+    pub fn visible_process_count(&self) -> usize {
+        self.visible_processes().count()
+    }
+
     pub fn selected_process(&self) -> Option<&ProcessSnapshot> {
         self.process_table_state
             .selected()
-            .and_then(|index| self.snapshot.processes.get(index))
+            .and_then(|index| self.visible_processes().nth(index))
+    }
+
+    fn handle_filter_key(&mut self, key: KeyEvent) {
+        let selected_pid = self.selected_process().map(|process| process.pid);
+        match key.code {
+            KeyCode::Esc => {
+                self.process_filter.clear();
+                self.filter_mode = false;
+            }
+            KeyCode::Enter => self.filter_mode = false,
+            KeyCode::Backspace => {
+                self.process_filter.pop();
+            }
+            KeyCode::Char(value)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.process_filter.push(value);
+            }
+            _ => {}
+        }
+        self.restore_process_selection(selected_pid);
+    }
+
+    fn clear_filter(&mut self) {
+        let selected_pid = self.selected_process().map(|process| process.pid);
+        self.process_filter.clear();
+        self.filter_mode = false;
+        self.restore_process_selection(selected_pid);
     }
 
     fn clear_histories(&mut self) {
@@ -183,7 +286,7 @@ impl App {
     }
 
     fn move_selection(&mut self, delta: isize) {
-        let count = self.snapshot.processes.len();
+        let count = self.visible_process_count();
         if count == 0 {
             self.process_table_state.select(None);
             return;
@@ -194,17 +297,42 @@ impl App {
         self.process_table_state.select(Some(next));
     }
 
+    fn cycle_sort(&mut self) {
+        let selected_pid = self.selected_process().map(|process| process.pid);
+        self.process_sort = self.process_sort.next();
+        self.sort_direction = self.process_sort.default_direction();
+        self.sort_processes();
+        self.restore_process_selection(selected_pid);
+    }
+
+    fn select_sort(&mut self, sort: ProcessSort) {
+        let selected_pid = self.selected_process().map(|process| process.pid);
+        if self.process_sort == sort {
+            self.sort_direction = self.sort_direction.toggle();
+        } else {
+            self.process_sort = sort;
+            self.sort_direction = sort.default_direction();
+        }
+        self.sort_processes();
+        self.restore_process_selection(selected_pid);
+    }
+
+    fn toggle_sort_direction(&mut self) {
+        let selected_pid = self.selected_process().map(|process| process.pid);
+        self.sort_direction = self.sort_direction.toggle();
+        self.sort_processes();
+        self.restore_process_selection(selected_pid);
+    }
+
     fn restore_process_selection(&mut self, selected_pid: Option<u32>) {
         let selection = selected_pid.and_then(|pid| {
-            self.snapshot
-                .processes
-                .iter()
+            self.visible_processes()
                 .position(|process| process.pid == pid)
         });
 
         if let Some(index) = selection {
             self.process_table_state.select(Some(index));
-        } else if self.snapshot.processes.is_empty() {
+        } else if self.visible_process_count() == 0 {
             self.process_table_state.select(None);
         } else {
             self.process_table_state.select(Some(0));
@@ -212,49 +340,68 @@ impl App {
     }
 
     fn sort_processes(&mut self) {
-        match self.process_sort {
+        let sort = self.process_sort;
+        let direction = self.sort_direction;
+        match sort {
             ProcessSort::Cpu => self.snapshot.processes.sort_by(|left, right| {
-                descending_f64(left.cpu_usage, right.cpu_usage)
+                direction
+                    .apply(ascending_f64(left.cpu_usage, right.cpu_usage))
                     .then_with(|| left.pid.cmp(&right.pid))
             }),
             ProcessSort::Memory => self.snapshot.processes.sort_by(|left, right| {
-                right
-                    .memory_bytes
-                    .cmp(&left.memory_bytes)
+                direction
+                    .apply(left.memory_bytes.cmp(&right.memory_bytes))
                     .then_with(|| left.pid.cmp(&right.pid))
             }),
             ProcessSort::Read => self.snapshot.processes.sort_by(|left, right| {
-                descending_f64(left.read_bytes_per_second, right.read_bytes_per_second)
+                direction
+                    .apply(ascending_f64(
+                        left.read_bytes_per_second,
+                        right.read_bytes_per_second,
+                    ))
                     .then_with(|| left.pid.cmp(&right.pid))
             }),
             ProcessSort::Write => self.snapshot.processes.sort_by(|left, right| {
-                descending_f64(
-                    left.written_bytes_per_second,
-                    right.written_bytes_per_second,
-                )
-                .then_with(|| left.pid.cmp(&right.pid))
+                direction
+                    .apply(ascending_f64(
+                        left.written_bytes_per_second,
+                        right.written_bytes_per_second,
+                    ))
+                    .then_with(|| left.pid.cmp(&right.pid))
             }),
-            ProcessSort::Name => self
-                .snapshot
-                .processes
-                .sort_by_cached_key(|process| (process.name.to_lowercase(), process.pid)),
+            ProcessSort::Name => {
+                self.snapshot
+                    .processes
+                    .sort_by_cached_key(|process| (process.name.to_lowercase(), process.pid));
+                if direction == SortDirection::Descending {
+                    self.snapshot.processes.reverse();
+                }
+            }
         }
     }
 }
 
-fn descending_f64(left: f64, right: f64) -> Ordering {
-    right.partial_cmp(&left).unwrap_or(Ordering::Equal)
+fn process_matches_filter(process: &ProcessSnapshot, query: &str) -> bool {
+    query.is_empty()
+        || process.pid.to_string().contains(query)
+        || process.name.to_lowercase().contains(query)
+        || process.executable.to_lowercase().contains(query)
+}
+
+fn ascending_f64(left: f64, right: f64) -> Ordering {
+    left.partial_cmp(&right).unwrap_or(Ordering::Equal)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn process(pid: u32, cpu_usage: f64) -> ProcessSnapshot {
+    fn process(pid: u32, name: &str, cpu_usage: f64) -> ProcessSnapshot {
         ProcessSnapshot {
             pid,
             cpu_usage,
-            name: format!("process-{pid}"),
+            name: name.to_owned(),
+            executable: format!("C:/Apps/{name}.exe"),
             ..ProcessSnapshot::default()
         }
     }
@@ -287,7 +434,10 @@ mod tests {
     #[test]
     fn selected_process_is_preserved_when_sort_order_changes() {
         let mut app = App::new(30);
-        assert!(app.apply_snapshot(snapshot(vec![process(1, 10.0), process(2, 20.0)])));
+        assert!(app.apply_snapshot(snapshot(vec![
+            process(1, "one", 10.0),
+            process(2, "two", 20.0),
+        ])));
 
         let selected_index = app
             .snapshot
@@ -297,7 +447,10 @@ mod tests {
             .unwrap();
         app.process_table_state.select(Some(selected_index));
 
-        assert!(app.apply_snapshot(snapshot(vec![process(1, 30.0), process(2, 5.0)])));
+        assert!(app.apply_snapshot(snapshot(vec![
+            process(1, "one", 30.0),
+            process(2, "two", 5.0),
+        ])));
         assert_eq!(app.selected_process().map(|process| process.pid), Some(1));
     }
 
@@ -306,8 +459,36 @@ mod tests {
         let mut app = App::new(30);
         app.paused = true;
 
-        assert!(!app.apply_snapshot(snapshot(vec![process(1, 10.0)])));
+        assert!(!app.apply_snapshot(snapshot(vec![process(1, "one", 10.0)])));
         assert!(!app.has_sample);
         assert!(app.snapshot.processes.is_empty());
+    }
+
+    #[test]
+    fn process_filter_matches_name_executable_and_pid() {
+        let mut app = App::new(30);
+        assert!(app.apply_snapshot(snapshot(vec![
+            process(101, "AlphaWorker", 10.0),
+            process(202, "BetaAgent", 20.0),
+        ])));
+
+        app.process_filter = "worker".to_owned();
+        assert_eq!(app.visible_process_count(), 1);
+        assert_eq!(app.visible_processes().next().map(|process| process.pid), Some(101));
+
+        app.process_filter = "202".to_owned();
+        assert_eq!(app.visible_processes().next().map(|process| process.pid), Some(202));
+    }
+
+    #[test]
+    fn ascending_cpu_sort_places_lowest_usage_first() {
+        let mut app = App::new(30);
+        app.sort_direction = SortDirection::Ascending;
+        assert!(app.apply_snapshot(snapshot(vec![
+            process(1, "one", 30.0),
+            process(2, "two", 5.0),
+        ])));
+
+        assert_eq!(app.snapshot.processes.first().map(|process| process.pid), Some(2));
     }
 }
