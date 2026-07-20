@@ -21,6 +21,13 @@ const SECONDARY: Color = Color::Magenta;
 const GOOD: Color = Color::Green;
 const WARN: Color = Color::Yellow;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProcessColumns {
+    Compact,
+    Io,
+    Full,
+}
+
 pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let area = frame.area();
     if area.width < 72 || area.height < 20 {
@@ -267,6 +274,7 @@ fn draw_network(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .max()
         .max(app.network_transmitted_history.max())
         .max(1024.0);
+    let network = app.network_view();
 
     let datasets = vec![
         Dataset::default()
@@ -284,12 +292,13 @@ fn draw_network(frame: &mut Frame<'_>, app: &App, area: Rect) {
     ];
 
     let title = format!(
-        " Network ({})  ↓ {}  ↑ {}  total ↓ {} ↑ {} ",
-        app.snapshot.network.interface_count,
-        format_rate(app.snapshot.network.received_bytes_per_second),
-        format_rate(app.snapshot.network.transmitted_bytes_per_second),
-        format_bytes(app.snapshot.network.total_received_bytes),
-        format_bytes(app.snapshot.network.total_transmitted_bytes),
+        " Network [{} | {} adapters]  ↓ {}  ↑ {}  total ↓ {} ↑ {} ",
+        truncate(network.name, 24),
+        network.adapter_count,
+        format_rate(network.received_bytes_per_second),
+        format_rate(network.transmitted_bytes_per_second),
+        format_bytes(network.total_received_bytes),
+        format_bytes(network.total_transmitted_bytes),
     );
     let chart = Chart::new(datasets)
         .block(panel(title))
@@ -338,22 +347,28 @@ fn draw_disks(frame: &mut Frame<'_>, app: &App, area: Rect) {
 }
 
 fn draw_processes(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
-    let header = Row::new(["PID", "Process", "CPU", "Memory", "Read", "Write", "State"])
+    let columns = process_columns(area.width);
+    let header = Row::new(process_header(columns))
         .style(Style::default().fg(PRIMARY).bold())
         .bottom_margin(1);
 
     let rows = app
         .visible_processes()
         .map(|process| {
-            Row::new(vec![
+            let mut cells = vec![
                 Cell::from(process.pid.to_string()),
                 Cell::from(process.name.clone()),
                 Cell::from(format!("{:>6.1}%", process.cpu_usage)),
                 Cell::from(format_bytes(process.memory_bytes)),
-                Cell::from(format_rate(process.read_bytes_per_second)),
-                Cell::from(format_rate(process.written_bytes_per_second)),
-                Cell::from(process.status.clone()),
-            ])
+            ];
+            if matches!(columns, ProcessColumns::Io | ProcessColumns::Full) {
+                cells.push(Cell::from(format_rate(process.read_bytes_per_second)));
+                cells.push(Cell::from(format_rate(process.written_bytes_per_second)));
+            }
+            if columns == ProcessColumns::Full {
+                cells.push(Cell::from(process.status.clone()));
+            }
+            Row::new(cells)
         })
         .collect::<Vec<_>>();
 
@@ -385,25 +400,51 @@ fn draw_processes(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
         truncate(&selected, area.width.saturating_sub(62) as usize)
     );
 
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Length(8),
-            Constraint::Min(20),
-            Constraint::Length(8),
-            Constraint::Length(11),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(11),
-        ],
-    )
-    .header(header)
-    .column_spacing(1)
-    .row_highlight_style(Style::default().fg(Color::Black).bg(PRIMARY).bold())
-    .highlight_symbol("▶ ")
-    .block(panel(title));
+    let table = Table::new(rows, process_widths(columns))
+        .header(header)
+        .column_spacing(1)
+        .row_highlight_style(Style::default().fg(Color::Black).bg(PRIMARY).bold())
+        .highlight_symbol("▶ ")
+        .block(panel(title));
 
     frame.render_stateful_widget(table, area, &mut app.process_table_state);
+}
+
+fn process_columns(width: u16) -> ProcessColumns {
+    if width >= 124 {
+        ProcessColumns::Full
+    } else if width >= 96 {
+        ProcessColumns::Io
+    } else {
+        ProcessColumns::Compact
+    }
+}
+
+fn process_header(columns: ProcessColumns) -> Vec<&'static str> {
+    let mut header = vec!["PID", "Process", "CPU", "Memory"];
+    if matches!(columns, ProcessColumns::Io | ProcessColumns::Full) {
+        header.extend(["Read", "Write"]);
+    }
+    if columns == ProcessColumns::Full {
+        header.push("State");
+    }
+    header
+}
+
+fn process_widths(columns: ProcessColumns) -> Vec<Constraint> {
+    let mut widths = vec![
+        Constraint::Length(8),
+        Constraint::Min(20),
+        Constraint::Length(8),
+        Constraint::Length(11),
+    ];
+    if matches!(columns, ProcessColumns::Io | ProcessColumns::Full) {
+        widths.extend([Constraint::Length(12), Constraint::Length(12)]);
+    }
+    if columns == ProcessColumns::Full {
+        widths.push(Constraint::Length(11));
+    }
+    widths
 }
 
 fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
@@ -412,7 +453,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     } else if app.filter_mode {
         "type to filter  Enter keep  Esc clear  Backspace delete"
     } else {
-        "q quit  / filter  c/m/n/d/w sort  o order  ↑↓/jk select  p pause  ? help"
+        "q quit  / filter  [] adapter  a all  c/m/n/d/w sort  o order  ↑↓ select  ? help"
     };
     frame.render_widget(
         Paragraph::new(text)
@@ -423,7 +464,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
 }
 
 fn draw_help(frame: &mut Frame<'_>, area: Rect) {
-    let popup = centered_rect(72, 82, area);
+    let popup = centered_rect(74, 86, area);
     frame.render_widget(Clear, popup);
     let text = Text::from(vec![
         Line::from(Span::styled(
@@ -435,6 +476,8 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         Line::from("/                    edit process filter"),
         Line::from("Enter                keep filter and leave edit mode"),
         Line::from("Backspace / Esc      edit or clear the filter"),
+        Line::from("[ / ]                previous or next network adapter"),
+        Line::from("a                    return to aggregate all-adapter network view"),
         Line::from("c/m/n/d/w            sort CPU/memory/name/read/write"),
         Line::from("o                    toggle ascending/descending order"),
         Line::from("s                    cycle process sort column"),
@@ -446,7 +489,7 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         Line::from("?                    close this help"),
         Line::from(""),
         Line::from(Span::styled(
-            "Header diagnostics show collector duration, previous render duration and the cumulative number of snapshots dropped while the UI was busy.",
+            "Process columns adapt to terminal width. Network histories reset on adapter changes so samples from different interfaces are never mixed.",
             Style::default().fg(Color::Gray),
         )),
     ]);
@@ -523,5 +566,12 @@ mod tests {
     fn truncates_unicode_by_characters() {
         assert_eq!(truncate("abcdef", 4), "abc…");
         assert_eq!(truncate("中文测试", 3), "中文…");
+    }
+
+    #[test]
+    fn process_columns_adapt_to_terminal_width() {
+        assert_eq!(process_columns(72), ProcessColumns::Compact);
+        assert_eq!(process_columns(96), ProcessColumns::Io);
+        assert_eq!(process_columns(124), ProcessColumns::Full);
     }
 }

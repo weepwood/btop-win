@@ -24,19 +24,27 @@ This document tracks performance, stability and Windows-specific improvements fo
 - **Stale-snapshot rejection:** duplicate or out-of-order snapshot sequences are ignored.
 - **Regression coverage:** tests cover filtering, ascending sort, pause behavior, bounded history and PID-stable selection.
 
+### Batch 3 — per-adapter networking and adaptive layout
+
+- **Per-adapter network snapshots:** preserve aggregate totals while collecting individual physical, VPN, loopback and virtual-interface rates.
+- **Stable adapter ordering:** sort adapters by name so keyboard selection remains predictable between samples.
+- **Adapter switching:** `[` and `]` cycle aggregate and individual views; `a` returns to all adapters.
+- **History isolation:** clear and restart network histories whenever the selected adapter changes.
+- **Adapter disappearance handling:** automatically fall back to aggregate view when a selected interface is removed.
+- **Adaptive process columns:** show full process details on wide terminals and progressively hide state and I/O columns on narrower panes.
+- **Regression coverage:** test cyclic adapter selection and process-column breakpoints.
+
 ## Next priorities
 
-### P1 — network and layout workflow
-
-- Per-network-adapter view so physical, loopback, VPN and virtual adapters can be inspected separately.
-- Adapter selection and aggregate/all-adapter modes.
-- Better compact layout for narrow Windows Terminal panes.
-- Adaptive process columns that hide low-priority fields before truncating names.
-- A diagnostics overlay with current, maximum and rolling-average collection/render durations.
-
-### P1 — configuration and Windows metric quality
+### P1 — configuration and diagnostics workflow
 
 - Persistent configuration for interval, history size, visible panels, selected adapter and theme.
+- A diagnostics overlay with current, maximum and rolling-average collection/render durations.
+- Runtime toggles for panels and compact/full display density.
+- Configuration migration and validation so future versions can evolve safely.
+
+### P1 — Windows metric quality
+
 - Optional Windows Performance Counter backend for CPU, disk queue and network metrics.
 - Process start time and parent PID to support a process tree and avoid PID-reuse ambiguity.
 - Optional LibreHardwareMonitor integration for temperature, fan and sensor data.
@@ -59,6 +67,9 @@ This document tracks performance, stability and Windows-specific improvements fo
 - Selected PID remains selected across sorting, filtering and sampling updates.
 - Filtering does not clone or retain a second complete process snapshot.
 - Duplicate or stale snapshot sequences are not applied.
+- Network histories never combine samples from different adapter selections.
+- Adapter selection remains stable by name and safely falls back when an interface disappears.
+- Process columns adapt before important process names are excessively truncated.
 - Collector shutdown cannot deadlock on a full delivery queue.
 - Collection and render durations are visible from inside the application.
 - CI passes formatting, Clippy, unit tests and the Windows Release build.

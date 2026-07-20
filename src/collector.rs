@@ -12,8 +12,8 @@ use std::{
 use sysinfo::{Disks, MINIMUM_CPU_UPDATE_INTERVAL, Networks, ProcessesToUpdate, System};
 
 use crate::model::{
-    CpuSnapshot, DiagnosticsSnapshot, DiskSnapshot, MemorySnapshot, NetworkSnapshot,
-    ProcessSnapshot, Snapshot,
+    CpuSnapshot, DiagnosticsSnapshot, DiskSnapshot, MemorySnapshot, NetworkAdapterSnapshot,
+    NetworkSnapshot, ProcessSnapshot, Snapshot,
 };
 
 pub fn spawn_collector(
@@ -156,25 +156,43 @@ impl Collector {
     }
 
     fn network_snapshot(&self, elapsed_seconds: f64) -> NetworkSnapshot {
-        let (received, transmitted, total_received, total_transmitted) = self
+        let mut adapters = self
             .networks
             .list()
-            .values()
-            .fold((0_u64, 0_u64, 0_u64, 0_u64), |totals, data| {
-                (
-                    totals.0.saturating_add(data.received()),
-                    totals.1.saturating_add(data.transmitted()),
-                    totals.2.saturating_add(data.total_received()),
-                    totals.3.saturating_add(data.total_transmitted()),
-                )
-            });
+            .iter()
+            .map(|(name, data)| NetworkAdapterSnapshot {
+                name: name.clone(),
+                received_bytes_per_second: data.received() as f64 / elapsed_seconds,
+                transmitted_bytes_per_second: data.transmitted() as f64 / elapsed_seconds,
+                total_received_bytes: data.total_received(),
+                total_transmitted_bytes: data.total_transmitted(),
+            })
+            .collect::<Vec<_>>();
+        adapters.sort_by(|left, right| {
+            left.name
+                .to_lowercase()
+                .cmp(&right.name.to_lowercase())
+                .then_with(|| left.name.cmp(&right.name))
+        });
+
+        let aggregate =
+            adapters
+                .iter()
+                .fold((0.0_f64, 0.0_f64, 0_u64, 0_u64), |totals, adapter| {
+                    (
+                        totals.0 + adapter.received_bytes_per_second,
+                        totals.1 + adapter.transmitted_bytes_per_second,
+                        totals.2.saturating_add(adapter.total_received_bytes),
+                        totals.3.saturating_add(adapter.total_transmitted_bytes),
+                    )
+                });
 
         NetworkSnapshot {
-            received_bytes_per_second: received as f64 / elapsed_seconds,
-            transmitted_bytes_per_second: transmitted as f64 / elapsed_seconds,
-            total_received_bytes: total_received,
-            total_transmitted_bytes: total_transmitted,
-            interface_count: self.networks.list().len(),
+            received_bytes_per_second: aggregate.0,
+            transmitted_bytes_per_second: aggregate.1,
+            total_received_bytes: aggregate.2,
+            total_transmitted_bytes: aggregate.3,
+            adapters,
         }
     }
 

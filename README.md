@@ -23,9 +23,11 @@ A terminal monitor is a pipeline rather than a single command:
 
 - Total CPU usage, frequency, logical/physical core counts and per-core summary
 - RAM and swap usage
-- Network download/upload rate and history graph
+- Aggregate and per-network-adapter download/upload rates and history graphs
+- Stable adapter switching for physical, VPN, loopback and virtual interfaces
 - Disk capacity, filesystem and read/write rate
 - Process table with CPU, memory, name and I/O sorting
+- Adaptive process columns for narrow Windows Terminal panes
 - Ascending/descending sort direction and direct sort shortcuts
 - Process filtering by name, executable path or PID
 - Stable PID-based selection across refreshes, sorting and filtering
@@ -77,6 +79,8 @@ btop-win [OPTIONS]
 | `/` | Enter process-filter editing |
 | `Enter` | Keep the filter and leave edit mode |
 | `Backspace`, `Esc` | Edit or clear the process filter |
+| `[` / `]` | Previous/next network adapter |
+| `a` | Return to the aggregate all-adapter view |
 | `c` / `m` / `n` / `d` / `w` | Sort CPU / memory / name / read / write |
 | `o` | Toggle ascending/descending order |
 | `s` | Cycle process sorting |
@@ -86,6 +90,8 @@ btop-win [OPTIONS]
 | `Home` / `End` | First/last visible process |
 | `r` | Reset chart history |
 | `?` | Toggle help |
+
+Switching network adapters resets the network chart history so values from different interfaces are never mixed.
 
 ## Runtime diagnostics
 
@@ -97,6 +103,16 @@ The header reports three lightweight diagnostics:
 
 These metrics make performance regressions visible without requiring an external profiler.
 
+## Adaptive process table
+
+The process table changes columns according to terminal width:
+
+- 124 cells and wider: PID, process, CPU, memory, read, write and state;
+- 96–123 cells: PID, process, CPU, memory, read and write;
+- 72–95 cells: PID, process, CPU and memory.
+
+Low-priority columns disappear before process names are aggressively truncated.
+
 ## Architecture
 
 ```text
@@ -107,6 +123,9 @@ Collector thread ── refresh/delta/normalize ──► bounded snapshot chann
                                                        │
                                                        ▼
 Input events ───────────────────────────────► filtered/sorted app state
+                                                       │
+                                                       ├─ selected network adapter
+                                                       └─ adaptive process columns
                                                        │
                                                        ▼
                                               event-driven renderer
@@ -127,12 +146,12 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for implementation details and 
 
 ## Roadmap
 
-- Per-network-adapter view and adapter filtering
+- Persistent configuration for interval, history, panels, selected adapter and theme
 - Windows Performance Counter collector for additional metrics
 - Optional LibreHardwareMonitor bridge for temperatures and fan speeds
 - GPU backends for NVIDIA, AMD and Intel
 - Process tree view with parent PID and start time
-- Theme and persistent configuration files
+- Diagnostics overlay with rolling averages and maxima
 - Scoop and WinGet manifests
 - ARM64 Windows release
 - Startup, steady-state and long-running regression benchmarks
