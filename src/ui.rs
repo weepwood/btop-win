@@ -171,7 +171,7 @@ fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
 fn draw_cpu(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
     let points = app.cpu_history.points();
     let x_max = app.cpu_history.len().saturating_sub(1).max(1) as f64;
-    let cpu_color = theme.usage_color(app.snapshot.cpu.total_usage as f64);
+    let cpu_color = theme.usage_color(app.snapshot.cpu.total_usage);
     let datasets = vec![
         Dataset::default()
             .name("total")
@@ -285,7 +285,7 @@ fn draw_memory(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
                 Span::styled(
                     format!(" {:>3.0}%  ", usage),
                     Style::default()
-                        .fg(theme.usage_color(*usage as f64))
+                        .fg(theme.usage_color(*usage))
                         .bg(theme.panel_background),
                 ),
             ]
@@ -431,7 +431,7 @@ fn draw_processes(frame: &mut Frame<'_>, app: &mut App, area: Rect, theme: Theme
                 Cell::from(process.pid.to_string()).style(Style::default().fg(theme.muted)),
                 Cell::from(process.name.clone()),
                 Cell::from(format!("{:>6.1}%", process.cpu_usage))
-                    .style(Style::default().fg(theme.usage_color(process.cpu_usage as f64))),
+                    .style(Style::default().fg(theme.usage_color(process.cpu_usage))),
                 Cell::from(format_bytes(process.memory_bytes))
                     .style(Style::default().fg(theme.memory)),
             ];
