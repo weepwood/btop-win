@@ -10,7 +10,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc,
+        mpsc::{self, TryRecvError},
     },
     time::Duration,
 };
@@ -55,18 +55,42 @@ fn main() -> Result<()> {
 
 fn run(terminal: &mut Tui, config: Config) -> Result<()> {
     let interval = Duration::from_millis(config.interval_ms);
-    let (sender, receiver) = mpsc::channel();
+    // Keep at most one pending snapshot. A slow terminal should not cause an
+    // unbounded queue of stale process lists and metric samples.
+    let (sender, receiver) = mpsc::sync_channel(1);
     let stop = Arc::new(AtomicBool::new(false));
-    let collector = spawn_collector(sender, Arc::clone(&stop), interval);
+    let collector = spawn_collector(sender, Arc::clone(&stop), interval)?;
     let mut app = App::new(config.history_points);
+    let mut dirty = true;
 
     let loop_result = (|| -> Result<()> {
         loop {
-            for snapshot in receiver.try_iter() {
-                app.apply_snapshot(snapshot);
+            let mut latest_snapshot = None;
+            let mut collector_disconnected = false;
+
+            loop {
+                match receiver.try_recv() {
+                    Ok(snapshot) => latest_snapshot = Some(snapshot),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        collector_disconnected = true;
+                        break;
+                    }
+                }
             }
 
-            terminal.draw(|frame| ui::draw(frame, &mut app))?;
+            if let Some(snapshot) = latest_snapshot {
+                dirty |= app.apply_snapshot(snapshot);
+            }
+
+            if collector_disconnected {
+                bail!("metric collector stopped unexpectedly");
+            }
+
+            if dirty {
+                terminal.draw(|frame| ui::draw(frame, &mut app))?;
+                dirty = false;
+            }
 
             if event::poll(Duration::from_millis(100))? {
                 match event::read()? {
@@ -74,8 +98,13 @@ fn run(terminal: &mut Tui, config: Config) -> Result<()> {
                         if app.handle_key(key) {
                             break;
                         }
+                        dirty = true;
                     }
-                    Event::Mouse(mouse) => app.handle_mouse(mouse),
+                    Event::Mouse(mouse) => {
+                        app.handle_mouse(mouse);
+                        dirty = true;
+                    }
+                    Event::Resize(_, _) => dirty = true,
                     _ => {}
                 }
             }
@@ -84,6 +113,7 @@ fn run(terminal: &mut Tui, config: Config) -> Result<()> {
     })();
 
     stop.store(true, Ordering::Relaxed);
+    drop(receiver);
     let collector_result = collector.join();
 
     loop_result?;
