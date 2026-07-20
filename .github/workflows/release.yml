@@ -1,5 +1,6 @@
 name: Release
 
+# A main-branch commit touching this file with [release] publishes Cargo.toml's version.
 on:
   push:
     tags:
