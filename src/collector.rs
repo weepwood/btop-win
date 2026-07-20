@@ -12,8 +12,8 @@ use std::{
 use sysinfo::{Disks, MINIMUM_CPU_UPDATE_INTERVAL, Networks, ProcessesToUpdate, System};
 
 use crate::model::{
-    CpuSnapshot, DiagnosticsSnapshot, DiskSnapshot, MemorySnapshot, NetworkSnapshot, ProcessSnapshot,
-    Snapshot,
+    CpuSnapshot, DiagnosticsSnapshot, DiskSnapshot, MemorySnapshot, NetworkSnapshot,
+    ProcessSnapshot, Snapshot,
 };
 
 pub fn spawn_collector(
