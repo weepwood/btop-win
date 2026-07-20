@@ -474,10 +474,16 @@ mod tests {
 
         app.process_filter = "worker".to_owned();
         assert_eq!(app.visible_process_count(), 1);
-        assert_eq!(app.visible_processes().next().map(|process| process.pid), Some(101));
+        assert_eq!(
+            app.visible_processes().next().map(|process| process.pid),
+            Some(101)
+        );
 
         app.process_filter = "202".to_owned();
-        assert_eq!(app.visible_processes().next().map(|process| process.pid), Some(202));
+        assert_eq!(
+            app.visible_processes().next().map(|process| process.pid),
+            Some(202)
+        );
     }
 
     #[test]
@@ -489,6 +495,9 @@ mod tests {
             process(2, "two", 5.0),
         ])));
 
-        assert_eq!(app.snapshot.processes.first().map(|process| process.pid), Some(2));
+        assert_eq!(
+            app.snapshot.processes.first().map(|process| process.pid),
+            Some(2)
+        );
     }
 }
