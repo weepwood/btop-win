@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   diagnose:
@@ -32,8 +34,52 @@ jobs:
             git push origin HEAD:feat/btop-inspired-theme
           fi
 
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Run Clippy diagnostics
+        id: clippy
+        shell: bash
+        run: |
+          set +e
+          cargo clippy --all-targets --all-features -- -D warnings > clippy.log 2>&1
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
 
-      - name: Test
-        run: cargo test --all-features
+      - name: Run test diagnostics
+        id: tests
+        shell: bash
+        run: |
+          set +e
+          cargo test --all-features > test.log 2>&1
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Post diagnostic summary
+        if: steps.clippy.outputs.code != '0' || steps.tests.outputs.code != '0'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '## Theme diagnostics'
+            echo
+            echo "Clippy exit: ${{ steps.clippy.outputs.code }}"
+            echo "Tests exit: ${{ steps.tests.outputs.code }}"
+            echo
+            echo '### Clippy'
+            echo '```text'
+            tail -n 120 clippy.log
+            echo '```'
+            echo
+            echo '### Tests'
+            echo '```text'
+            tail -n 80 test.log
+            echo '```'
+          } > diagnostics.md
+          gh pr comment 7 --body-file diagnostics.md
+
+      - name: Verify diagnostics
+        shell: bash
+        run: |
+          test "${{ steps.clippy.outputs.code }}" = "0"
+          test "${{ steps.tests.outputs.code }}" = "0"
