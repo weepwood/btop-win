@@ -175,17 +175,17 @@ impl Collector {
                 .then_with(|| left.name.cmp(&right.name))
         });
 
-        let aggregate = adapters.iter().fold(
-            (0.0_f64, 0.0_f64, 0_u64, 0_u64),
-            |totals, adapter| {
-                (
-                    totals.0 + adapter.received_bytes_per_second,
-                    totals.1 + adapter.transmitted_bytes_per_second,
-                    totals.2.saturating_add(adapter.total_received_bytes),
-                    totals.3.saturating_add(adapter.total_transmitted_bytes),
-                )
-            },
-        );
+        let aggregate =
+            adapters
+                .iter()
+                .fold((0.0_f64, 0.0_f64, 0_u64, 0_u64), |totals, adapter| {
+                    (
+                        totals.0 + adapter.received_bytes_per_second,
+                        totals.1 + adapter.transmitted_bytes_per_second,
+                        totals.2.saturating_add(adapter.total_received_bytes),
+                        totals.3.saturating_add(adapter.total_transmitted_bytes),
+                    )
+                });
 
         NetworkSnapshot {
             received_bytes_per_second: aggregate.0,
