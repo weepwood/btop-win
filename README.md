@@ -32,6 +32,8 @@ A terminal monitor is a pipeline rather than a single command:
 - Process filtering by name, executable path or PID
 - Stable PID-based selection across refreshes, sorting and filtering
 - Collector duration, previous render duration and skipped-snapshot diagnostics
+- Btop-inspired rounded panels, metric colors and status chips
+- Four built-in themes: `btop`, `dracula`, `nord` and `mono`
 - Keyboard and mouse-wheel navigation
 - Pause, chart reset, help overlay and terminal-size handling
 - Panic-safe terminal restoration
@@ -67,9 +69,23 @@ btop-win [OPTIONS]
 
 -i, --interval <MS>    Sampling interval, 250-5000 ms (default: 1000)
     --history <COUNT>  History points, 30-600 (default: 120)
+    --theme <NAME>     Theme: btop, dracula, nord, mono (default: btop)
 -h, --help             Print help
 -V, --version          Print version
 ```
+
+### Themes
+
+The default `btop` theme uses a deep blue-black background, rounded colored panel borders, per-metric accents and green/yellow/red utilization thresholds. Alternative palettes can be selected at startup:
+
+```powershell
+btop-win --theme btop
+btop-win --theme dracula
+btop-win --theme nord
+btop-win --theme mono
+```
+
+Theme colors are defined in `src/theme.rs`; rendering code consumes semantic roles such as `primary`, `download`, `warning` and `selected_background` instead of hard-coded colors. This keeps future custom-theme loading isolated from layout code.
 
 ### Keyboard
 
@@ -138,15 +154,17 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for implementation details and 
 
 ## Known limitations
 
-- GPU utilization and temperature are not included in v0.1 because Windows exposes them through vendor- and driver-dependent paths.
-- Process termination is deliberately excluded from the first release.
+- GPU utilization and temperature are not included because Windows exposes them through vendor- and driver-dependent paths.
+- Process termination is deliberately excluded until confirmation and critical-process safeguards are implemented.
 - Disk I/O on Windows depends on what the operating system and hardware driver expose.
 - Process CPU can exceed 100% because it represents use across multiple logical CPUs.
 - A terminal smaller than 72×20 cells shows a resize message instead of clipping panels.
+- Themes are currently built in; loading user `.theme` files is planned separately.
 
 ## Roadmap
 
 - Persistent configuration for interval, history, panels, selected adapter and theme
+- User theme files with validation and safe fallback
 - Windows Performance Counter collector for additional metrics
 - Optional LibreHardwareMonitor bridge for temperatures and fan speeds
 - GPU backends for NVIDIA, AMD and Intel
@@ -164,7 +182,7 @@ See [docs/OPTIMIZATION_ROADMAP.md](docs/OPTIMIZATION_ROADMAP.md) for prioritized
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
-cargo run -- --interval 500
+cargo run -- --interval 500 --theme btop
 ```
 
 Pull requests should keep the collector independent from rendering and avoid blocking work in the event loop.
