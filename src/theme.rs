@@ -24,15 +24,6 @@ impl ThemeName {
         }
     }
 
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Btop => "btop",
-            Self::Dracula => "dracula",
-            Self::Nord => "nord",
-            Self::Mono => "mono",
-        }
-    }
-
     pub const fn palette(self) -> Theme {
         match self {
             Self::Btop => BTOP,
