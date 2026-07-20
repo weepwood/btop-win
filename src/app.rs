@@ -74,6 +74,16 @@ impl SortDirection {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct NetworkView<'a> {
+    pub name: &'a str,
+    pub received_bytes_per_second: f64,
+    pub transmitted_bytes_per_second: f64,
+    pub total_received_bytes: u64,
+    pub total_transmitted_bytes: u64,
+    pub adapter_count: usize,
+}
+
 #[derive(Debug)]
 pub struct History {
     values: VecDeque<f64>,
@@ -128,6 +138,7 @@ pub struct App {
     pub sort_direction: SortDirection,
     pub process_filter: String,
     pub filter_mode: bool,
+    pub selected_network_adapter: Option<String>,
     pub paused: bool,
     pub show_help: bool,
     pub has_sample: bool,
@@ -148,6 +159,7 @@ impl App {
             sort_direction: SortDirection::default(),
             process_filter: String::new(),
             filter_mode: false,
+            selected_network_adapter: None,
             paused: false,
             show_help: false,
             has_sample: false,
@@ -164,15 +176,13 @@ impl App {
 
         let selected_pid = self.selected_process().map(|process| process.pid);
         self.snapshot = snapshot;
+        self.validate_network_selection();
         self.sort_processes();
         self.restore_process_selection(selected_pid);
         self.cpu_history.push(self.snapshot.cpu.total_usage);
         self.memory_history
             .push(self.snapshot.memory.used_ratio() * 100.0);
-        self.network_received_history
-            .push(self.snapshot.network.received_bytes_per_second);
-        self.network_transmitted_history
-            .push(self.snapshot.network.transmitted_bytes_per_second);
+        self.push_current_network_sample();
         self.has_sample = true;
         true
     }
@@ -206,6 +216,9 @@ impl App {
             KeyCode::Char('d' | 'D') => self.select_sort(ProcessSort::Read),
             KeyCode::Char('w' | 'W') => self.select_sort(ProcessSort::Write),
             KeyCode::Char('n' | 'N') => self.select_sort(ProcessSort::Name),
+            KeyCode::Char('a' | 'A') => self.select_all_network_adapters(),
+            KeyCode::Char('[') => self.cycle_network_adapter(-1),
+            KeyCode::Char(']') => self.cycle_network_adapter(1),
             KeyCode::Char('r' | 'R') => self.clear_histories(),
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
@@ -248,6 +261,35 @@ impl App {
             .and_then(|index| self.visible_processes().nth(index))
     }
 
+    pub fn network_view(&self) -> NetworkView<'_> {
+        if let Some(selected_name) = self.selected_network_adapter.as_deref()
+            && let Some(adapter) = self
+                .snapshot
+                .network
+                .adapters
+                .iter()
+                .find(|adapter| adapter.name == selected_name)
+        {
+            return NetworkView {
+                name: adapter.name.as_str(),
+                received_bytes_per_second: adapter.received_bytes_per_second,
+                transmitted_bytes_per_second: adapter.transmitted_bytes_per_second,
+                total_received_bytes: adapter.total_received_bytes,
+                total_transmitted_bytes: adapter.total_transmitted_bytes,
+                adapter_count: self.snapshot.network.adapters.len(),
+            };
+        }
+
+        NetworkView {
+            name: "All adapters",
+            received_bytes_per_second: self.snapshot.network.received_bytes_per_second,
+            transmitted_bytes_per_second: self.snapshot.network.transmitted_bytes_per_second,
+            total_received_bytes: self.snapshot.network.total_received_bytes,
+            total_transmitted_bytes: self.snapshot.network.total_transmitted_bytes,
+            adapter_count: self.snapshot.network.adapters.len(),
+        }
+    }
+
     fn handle_filter_key(&mut self, key: KeyEvent) {
         let selected_pid = self.selected_process().map(|process| process.pid);
         match key.code {
@@ -281,8 +323,71 @@ impl App {
     fn clear_histories(&mut self) {
         self.cpu_history.clear();
         self.memory_history.clear();
+        self.clear_network_histories();
+    }
+
+    fn clear_network_histories(&mut self) {
         self.network_received_history.clear();
         self.network_transmitted_history.clear();
+    }
+
+    fn push_current_network_sample(&mut self) {
+        let view = self.network_view();
+        let received = view.received_bytes_per_second;
+        let transmitted = view.transmitted_bytes_per_second;
+        self.network_received_history.push(received);
+        self.network_transmitted_history.push(transmitted);
+    }
+
+    fn validate_network_selection(&mut self) {
+        let selected_exists = self.selected_network_adapter.as_ref().is_some_and(|name| {
+            self.snapshot
+                .network
+                .adapters
+                .iter()
+                .any(|adapter| adapter.name == *name)
+        });
+        if self.selected_network_adapter.is_some() && !selected_exists {
+            self.selected_network_adapter = None;
+            self.clear_network_histories();
+        }
+    }
+
+    fn cycle_network_adapter(&mut self, delta: isize) {
+        let adapter_count = self.snapshot.network.adapters.len();
+        if adapter_count == 0 {
+            self.selected_network_adapter = None;
+            return;
+        }
+
+        let option_count = adapter_count + 1;
+        let current = self
+            .selected_network_adapter
+            .as_ref()
+            .and_then(|selected| {
+                self.snapshot
+                    .network
+                    .adapters
+                    .iter()
+                    .position(|adapter| adapter.name == *selected)
+                    .map(|index| index + 1)
+            })
+            .unwrap_or_default();
+        let next = (current as isize + delta).rem_euclid(option_count as isize) as usize;
+        self.selected_network_adapter = if next == 0 {
+            None
+        } else {
+            Some(self.snapshot.network.adapters[next - 1].name.clone())
+        };
+        self.clear_network_histories();
+        self.push_current_network_sample();
+    }
+
+    fn select_all_network_adapters(&mut self) {
+        if self.selected_network_adapter.take().is_some() {
+            self.clear_network_histories();
+            self.push_current_network_sample();
+        }
     }
 
     fn move_selection(&mut self, delta: isize) {
@@ -395,6 +500,7 @@ fn ascending_f64(left: f64, right: f64) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::NetworkAdapterSnapshot;
 
     fn process(pid: u32, name: &str, cpu_usage: f64) -> ProcessSnapshot {
         ProcessSnapshot {
@@ -499,5 +605,31 @@ mod tests {
             app.snapshot.processes.first().map(|process| process.pid),
             Some(2)
         );
+    }
+
+    #[test]
+    fn network_adapter_selection_is_stable_and_cyclic() {
+        let mut app = App::new(30);
+        let mut sample = Snapshot::default();
+        sample.network.adapters = vec![
+            NetworkAdapterSnapshot {
+                name: "Ethernet".to_owned(),
+                received_bytes_per_second: 10.0,
+                ..NetworkAdapterSnapshot::default()
+            },
+            NetworkAdapterSnapshot {
+                name: "VPN".to_owned(),
+                received_bytes_per_second: 20.0,
+                ..NetworkAdapterSnapshot::default()
+            },
+        ];
+        assert!(app.apply_snapshot(sample));
+
+        app.cycle_network_adapter(1);
+        assert_eq!(app.network_view().name, "Ethernet");
+        app.cycle_network_adapter(1);
+        assert_eq!(app.network_view().name, "VPN");
+        app.cycle_network_adapter(1);
+        assert_eq!(app.network_view().name, "All adapters");
     }
 }
