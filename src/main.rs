@@ -12,7 +12,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, TryRecvError},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Result, bail};
@@ -79,7 +79,10 @@ fn run(terminal: &mut Tui, config: Config) -> Result<()> {
                 }
             }
 
-            if let Some(snapshot) = latest_snapshot {
+            if let Some(snapshot) = latest_snapshot
+                && (!app.has_sample
+                    || snapshot.diagnostics.sequence > app.snapshot.diagnostics.sequence)
+            {
                 dirty |= app.apply_snapshot(snapshot);
             }
 
@@ -88,7 +91,9 @@ fn run(terminal: &mut Tui, config: Config) -> Result<()> {
             }
 
             if dirty {
+                let render_started = Instant::now();
                 terminal.draw(|frame| ui::draw(frame, &mut app))?;
+                app.record_render(render_started.elapsed());
                 dirty = false;
             }
 

@@ -8,6 +8,14 @@ pub struct Snapshot {
     pub network: NetworkSnapshot,
     pub disks: Vec<DiskSnapshot>,
     pub processes: Vec<ProcessSnapshot>,
+    pub diagnostics: DiagnosticsSnapshot,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct DiagnosticsSnapshot {
+    pub sequence: u64,
+    pub collection_duration_ms: f64,
+    pub skipped_samples: u64,
 }
 
 #[derive(Clone, Debug, Default)]

@@ -12,7 +12,8 @@ use std::{
 use sysinfo::{Disks, MINIMUM_CPU_UPDATE_INTERVAL, Networks, ProcessesToUpdate, System};
 
 use crate::model::{
-    CpuSnapshot, DiskSnapshot, MemorySnapshot, NetworkSnapshot, ProcessSnapshot, Snapshot,
+    CpuSnapshot, DiagnosticsSnapshot, DiskSnapshot, MemorySnapshot, NetworkSnapshot,
+    ProcessSnapshot, Snapshot,
 };
 
 pub fn spawn_collector(
@@ -24,14 +25,19 @@ pub fn spawn_collector(
         .name("metrics-collector".to_owned())
         .spawn(move || {
             let mut collector = Collector::new();
+            let mut skipped_samples = 0_u64;
 
             while !stop.load(Ordering::Relaxed) {
                 let cycle_started = Instant::now();
-                match sender.try_send(collector.sample()) {
+                let mut snapshot = collector.sample();
+                snapshot.diagnostics.skipped_samples = skipped_samples;
+
+                match sender.try_send(snapshot) {
                     Ok(()) => {}
                     Err(TrySendError::Full(_)) => {
                         // The UI has not consumed the previous snapshot yet.
                         // Drop this sample instead of growing a stale backlog.
+                        skipped_samples = skipped_samples.saturating_add(1);
                     }
                     Err(TrySendError::Disconnected(_)) => break,
                 }
@@ -63,6 +69,7 @@ struct Collector {
     host_name: String,
     os_version: String,
     physical_cores: Option<usize>,
+    sequence: u64,
 }
 
 impl Collector {
@@ -88,10 +95,12 @@ impl Collector {
             host_name,
             os_version,
             physical_cores,
+            sequence: 0,
         }
     }
 
     fn sample(&mut self) -> Snapshot {
+        let collection_started = Instant::now();
         let now = Instant::now();
         let elapsed_seconds = now
             .duration_since(self.last_sample)
@@ -104,8 +113,9 @@ impl Collector {
         self.system.refresh_processes(ProcessesToUpdate::All, true);
         self.networks.refresh(true);
         self.disks.refresh(true);
+        self.sequence = self.sequence.saturating_add(1);
 
-        Snapshot {
+        let mut snapshot = Snapshot {
             host_name: self.host_name.clone(),
             os_version: self.os_version.clone(),
             uptime_seconds: System::uptime(),
@@ -114,7 +124,14 @@ impl Collector {
             network: self.network_snapshot(elapsed_seconds),
             disks: self.disk_snapshots(elapsed_seconds),
             processes: self.process_snapshots(elapsed_seconds),
-        }
+            diagnostics: DiagnosticsSnapshot {
+                sequence: self.sequence,
+                ..DiagnosticsSnapshot::default()
+            },
+        };
+        snapshot.diagnostics.collection_duration_ms =
+            collection_started.elapsed().as_secs_f64() * 1_000.0;
+        snapshot
     }
 
     fn cpu_snapshot(&self) -> CpuSnapshot {
