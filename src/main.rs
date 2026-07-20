@@ -79,7 +79,10 @@ fn run(terminal: &mut Tui, config: Config) -> Result<()> {
                 }
             }
 
-            if let Some(snapshot) = latest_snapshot {
+            if let Some(snapshot) = latest_snapshot
+                && (!app.has_sample
+                    || snapshot.diagnostics.sequence > app.snapshot.diagnostics.sequence)
+            {
                 dirty |= app.apply_snapshot(snapshot);
             }
 
