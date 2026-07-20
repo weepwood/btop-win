@@ -1,0 +1,59 @@
+name: Theme diagnostics
+
+on:
+  push:
+    branches:
+      - feat/btop-inspired-theme
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Apply rustfmt
+        run: cargo fmt --all
+
+      - name: Capture rustfmt patch
+        run: git diff > rustfmt.patch
+
+      - name: Run Clippy diagnostics
+        shell: bash
+        run: |
+          set +e
+          cargo clippy --all-targets --all-features -- -D warnings > clippy.log 2>&1
+          echo $? > clippy.exit
+          exit 0
+
+      - name: Run tests diagnostics
+        shell: bash
+        run: |
+          set +e
+          cargo test --all-features > test.log 2>&1
+          echo $? > test.exit
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: theme-diagnostics
+          path: |
+            src
+            rustfmt.patch
+            clippy.log
+            clippy.exit
+            test.log
+            test.exit
+
+      - name: Verify diagnostics
+        shell: bash
+        run: |
+          git diff --exit-code
+          test "$(cat clippy.exit)" = "0"
+          test "$(cat test.exit)" = "0"
