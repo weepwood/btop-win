@@ -88,15 +88,9 @@ mod tests {
 
     #[test]
     fn parses_custom_values() {
-        let config = Config::parse_from([
-            "--interval",
-            "500",
-            "--history",
-            "240",
-            "--theme",
-            "nord",
-        ])
-        .unwrap();
+        let config =
+            Config::parse_from(["--interval", "500", "--history", "240", "--theme", "nord"])
+                .unwrap();
         assert_eq!(config.interval_ms, 500);
         assert_eq!(config.history_points, 240);
         assert_eq!(config.theme, ThemeName::Nord);

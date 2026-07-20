@@ -5,8 +5,8 @@ use ratatui::{
     symbols::Marker,
     text::{Line, Span, Text},
     widgets::{
-        Axis, Block, BorderType, Borders, Cell, Chart, Clear, Dataset, Gauge, GraphType,
-        Paragraph, Row, Table, Wrap,
+        Axis, Block, BorderType, Borders, Cell, Chart, Clear, Dataset, Gauge, GraphType, Paragraph,
+        Row, Table, Wrap,
     },
 };
 
@@ -26,11 +26,7 @@ enum ProcessColumns {
 pub fn draw(frame: &mut Frame<'_>, app: &mut App, theme: Theme) {
     let area = frame.area();
     frame.render_widget(
-        Block::default().style(
-            Style::default()
-                .fg(theme.foreground)
-                .bg(theme.background),
-        ),
+        Block::default().style(Style::default().fg(theme.foreground).bg(theme.background)),
         area,
     );
 
@@ -166,11 +162,7 @@ fn draw_header(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
         frame.render_widget(
             Paragraph::new(right)
                 .alignment(Alignment::Right)
-                .style(
-                    Style::default()
-                        .fg(theme.muted)
-                        .bg(theme.panel_background),
-                ),
+                .style(Style::default().fg(theme.muted).bg(theme.panel_background)),
             right_area,
         );
     }
@@ -270,11 +262,7 @@ fn draw_memory(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
                     .borders(Borders::BOTTOM)
                     .border_style(Style::default().fg(theme.border)),
             )
-            .gauge_style(
-                Style::default()
-                    .fg(theme.swap)
-                    .bg(theme.background),
-            )
+            .gauge_style(Style::default().fg(theme.swap).bg(theme.background))
             .percent(percent(swap_percentage))
             .label(swap_label)
             .use_unicode(true),
@@ -292,9 +280,7 @@ fn draw_memory(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
             [
                 Span::styled(
                     format!("C{index}"),
-                    Style::default()
-                        .fg(theme.muted)
-                        .bg(theme.panel_background),
+                    Style::default().fg(theme.muted).bg(theme.panel_background),
                 ),
                 Span::styled(
                     format!(" {:>3.0}%  ", usage),
@@ -583,11 +569,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
     frame.render_widget(
         Paragraph::new(line)
             .alignment(Alignment::Center)
-            .style(
-                Style::default()
-                    .fg(theme.muted)
-                    .bg(theme.background),
-            ),
+            .style(Style::default().fg(theme.muted).bg(theme.background)),
         area,
     );
 }
@@ -603,7 +585,11 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        help_line(theme, "q / Esc / Ctrl+C", "quit; Esc clears an active filter first"),
+        help_line(
+            theme,
+            "q / Esc / Ctrl+C",
+            "quit; Esc clears an active filter first",
+        ),
         help_line(theme, "/", "edit process filter"),
         help_line(theme, "Enter", "keep filter and leave edit mode"),
         help_line(theme, "Backspace / Esc", "edit or clear the filter"),
@@ -622,7 +608,10 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
         Line::from(vec![
             Span::styled("Theme  ", Style::default().fg(theme.secondary)),
             Span::styled(
-                format!("{}  (start with --theme btop|dracula|nord|mono)", theme.name),
+                format!(
+                    "{}  (start with --theme btop|dracula|nord|mono)",
+                    theme.name
+                ),
                 Style::default().fg(theme.muted),
             ),
         ]),
