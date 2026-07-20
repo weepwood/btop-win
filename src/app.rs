@@ -109,13 +109,16 @@ impl App {
         }
     }
 
-    pub fn apply_snapshot(&mut self, snapshot: Snapshot) {
+    /// Applies a new collector snapshot and returns whether the UI changed.
+    pub fn apply_snapshot(&mut self, snapshot: Snapshot) -> bool {
         if self.paused {
-            return;
+            return false;
         }
 
+        let selected_pid = self.selected_process().map(|process| process.pid);
         self.snapshot = snapshot;
         self.sort_processes();
+        self.restore_process_selection(selected_pid);
         self.cpu_history.push(self.snapshot.cpu.total_usage);
         self.memory_history
             .push(self.snapshot.memory.used_ratio() * 100.0);
@@ -124,7 +127,7 @@ impl App {
         self.network_transmitted_history
             .push(self.snapshot.network.transmitted_bytes_per_second);
         self.has_sample = true;
-        self.clamp_process_selection();
+        true
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
@@ -137,9 +140,10 @@ impl App {
             KeyCode::Char('?') => self.show_help = !self.show_help,
             KeyCode::Char('p') | KeyCode::Char(' ') => self.paused = !self.paused,
             KeyCode::Char('s') => {
+                let selected_pid = self.selected_process().map(|process| process.pid);
                 self.process_sort = self.process_sort.next();
                 self.sort_processes();
-                self.process_table_state.select(Some(0));
+                self.restore_process_selection(selected_pid);
             }
             KeyCode::Char('r') => self.clear_histories(),
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
@@ -190,13 +194,20 @@ impl App {
         self.process_table_state.select(Some(next));
     }
 
-    fn clamp_process_selection(&mut self) {
-        let count = self.snapshot.processes.len();
-        match (count, self.process_table_state.selected()) {
-            (0, _) => self.process_table_state.select(None),
-            (_, None) => self.process_table_state.select(Some(0)),
-            (_, Some(index)) if index >= count => self.process_table_state.select(Some(count - 1)),
-            _ => {}
+    fn restore_process_selection(&mut self, selected_pid: Option<u32>) {
+        let selection = selected_pid.and_then(|pid| {
+            self.snapshot
+                .processes
+                .iter()
+                .position(|process| process.pid == pid)
+        });
+
+        if let Some(index) = selection {
+            self.process_table_state.select(Some(index));
+        } else if self.snapshot.processes.is_empty() {
+            self.process_table_state.select(None);
+        } else {
+            self.process_table_state.select(Some(0));
         }
     }
 
@@ -223,12 +234,10 @@ impl App {
                 )
                 .then_with(|| left.pid.cmp(&right.pid))
             }),
-            ProcessSort::Name => self.snapshot.processes.sort_by(|left, right| {
-                left.name
-                    .to_lowercase()
-                    .cmp(&right.name.to_lowercase())
-                    .then_with(|| left.pid.cmp(&right.pid))
-            }),
+            ProcessSort::Name => self
+                .snapshot
+                .processes
+                .sort_by_cached_key(|process| (process.name.to_lowercase(), process.pid)),
         }
     }
 }
@@ -240,6 +249,22 @@ fn descending_f64(left: f64, right: f64) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn process(pid: u32, cpu_usage: f64) -> ProcessSnapshot {
+        ProcessSnapshot {
+            pid,
+            cpu_usage,
+            name: format!("process-{pid}"),
+            ..ProcessSnapshot::default()
+        }
+    }
+
+    fn snapshot(processes: Vec<ProcessSnapshot>) -> Snapshot {
+        Snapshot {
+            processes,
+            ..Snapshot::default()
+        }
+    }
 
     #[test]
     fn history_keeps_capacity() {
@@ -257,5 +282,32 @@ mod tests {
             sort = sort.next();
         }
         assert_eq!(sort, ProcessSort::Cpu);
+    }
+
+    #[test]
+    fn selected_process_is_preserved_when_sort_order_changes() {
+        let mut app = App::new(30);
+        assert!(app.apply_snapshot(snapshot(vec![process(1, 10.0), process(2, 20.0)])));
+
+        let selected_index = app
+            .snapshot
+            .processes
+            .iter()
+            .position(|process| process.pid == 1)
+            .unwrap();
+        app.process_table_state.select(Some(selected_index));
+
+        assert!(app.apply_snapshot(snapshot(vec![process(1, 30.0), process(2, 5.0)])));
+        assert_eq!(app.selected_process().map(|process| process.pid), Some(1));
+    }
+
+    #[test]
+    fn paused_app_does_not_apply_snapshots() {
+        let mut app = App::new(30);
+        app.paused = true;
+
+        assert!(!app.apply_snapshot(snapshot(vec![process(1, 10.0)])));
+        assert!(!app.has_sample);
+        assert!(app.snapshot.processes.is_empty());
     }
 }
