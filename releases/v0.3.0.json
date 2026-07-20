@@ -1,0 +1,11 @@
+{
+  "version": "0.3.0",
+  "tag": "v0.3.0",
+  "tag_commit": "f5b5ff0092a3334c35770db6ac1f785ceb636168",
+  "workflow_commit": "f5b5ff0092a3334c35770db6ac1f785ceb636168",
+  "platform": "x86_64-pc-windows-msvc",
+  "asset": "btop-win-0.3.0-x86_64-pc-windows-msvc.zip",
+  "asset_url": "https://github.com/weepwood/btop-win/releases/download/v0.3.0/btop-win-0.3.0-x86_64-pc-windows-msvc.zip",
+  "sha256": "c8ec7d4640322358d87177016cc6bc6993cd1b2782357693bad86f5c268fbdfe",
+  "published_at": "2026-07-20T08:43:14.2619023Z"
+}
