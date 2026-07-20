@@ -22,15 +22,17 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
 
-      - name: Apply and commit rustfmt
+      - name: Apply safe formatter and Clippy fixes
         shell: bash
         run: |
+          cargo fmt --all
+          cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features -- -D warnings || true
           cargo fmt --all
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add src
-            git commit -m "style: apply rustfmt"
+            git commit -m "style: apply formatter and clippy fixes"
             git push origin HEAD:feat/btop-inspired-theme
           fi
 
